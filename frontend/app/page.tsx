@@ -1,9 +1,23 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { fetchSetups } from "@/lib/api";
 
-export default async function HomePage() {
-  const setups = await fetchSetups();
-  const newSetupId = typeof window !== "undefined" ? window.localStorage.getItem("setup_resource_manager_new_setup") : null;
+export default function HomePage() {
+  const [setups, setSetups] = useState<any[]>([]);
+  const [newSetupId, setNewSetupId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      const data = await fetchSetups();
+      setSetups(data);
+      setNewSetupId(window.localStorage.getItem("setup_resource_manager_new_setup"));
+      window.localStorage.removeItem("setup_resource_manager_new_setup");
+    };
+
+    load().catch(console.error);
+  }, []);
 
   return (
     <main>

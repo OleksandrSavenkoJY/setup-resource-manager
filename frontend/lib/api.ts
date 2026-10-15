@@ -1,4 +1,4 @@
-const API_BASE = process.env.API_INTERNAL_URL || "http://backend:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export async function fetchSetups() {
   const res = await fetch(`${API_BASE}/setups`, { cache: "no-store" });
