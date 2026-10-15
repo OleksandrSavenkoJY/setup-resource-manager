@@ -43,6 +43,19 @@ input, textarea, select {
   box-sizing: border-box;
 }
 
+textarea {
+  min-width: 100%;
+  max-width: 100%;
+  resize: vertical;
+}
+
+.field-error {
+  border-color: #dc2626;
+  background: #fef2f2;
+  outline: none;
+  box-shadow: 0 0 0 1px #dc2626;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
