@@ -72,6 +72,7 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   function markTouched(field: string) {
     setTouched((current) => ({ ...current, [field]: true }));
@@ -90,7 +91,6 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
   }
 
   const isValid = validate();
-
   const canSubmit =
     isValid.name &&
     isValid.description &&
@@ -105,9 +105,7 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
     setSubmitAttempted(true);
     setSubmitError(null);
 
-    if (!canSubmit) {
-      return;
-    }
+    if (!canSubmit || isSubmitting) return;
 
     const payload = {
       name,
@@ -116,20 +114,24 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
       outlets_used: outletsUsed,
       devices: chamber ? [...devices, ...chamberDevices] : devices,
       chamber_devices: chamber ? chamberDevices : [],
-      connections: [],
+      connections: initialData?.connections ?? [],
     };
 
     try {
+      setIsSubmitting(true);
       if (mode === "create") {
         const created = await createSetup(payload);
         window.localStorage.setItem("setup_resource_manager_new_setup", String(created.id));
-        window.location.assign("/");
+        router.push("/");
+        router.refresh();
       } else if (setupId) {
         await updateSetup(setupId, payload);
         router.push(`/setups/${setupId}`);
       }
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Failed to save setup");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -275,7 +277,9 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
       {submitError ? <div className="field-error" style={{ padding: 12, marginBottom: 12 }}>{submitError}</div> : null}
       {!canSubmit && submitAttempted ? <div className="field-error" style={{ padding: 12, marginBottom: 12 }}>Please fill in the required fields.</div> : null}
 
-      <button type="submit">{mode === "create" ? "Create" : "Save"}</button>
+      <button type="submit" disabled={isSubmitting}>
+        {isSubmitting ? "Creating..." : mode === "create" ? "Create" : "Save"}
+      </button>
     </form>
   );
 }
