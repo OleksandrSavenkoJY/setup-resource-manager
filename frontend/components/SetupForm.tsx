@@ -13,15 +13,15 @@ type Props = {
 export default function SetupForm({ mode, setupId, initialData }: Props) {
   const router = useRouter();
 
-  const [name, setName] = useState(initialData?.name || "");
-  const [description, setDescription] = useState(initialData?.description || "");
-  const [chamber, setChamber] = useState(initialData?.chamber || false);
-  const [outletsUsed, setOutletsUsed] = useState(initialData?.outlets_used || 0);
-  const [devicesText, setDevicesText] = useState(
-    initialData?.devices?.map((d: any) => `${d.type},${d.name},${d.quantity},${d.location || ""},${d.notes || ""}`).join("\n") || ""
+  const [name, setName] = useState<string>(initialData?.name ?? "");
+  const [description, setDescription] = useState<string>(initialData?.description ?? "");
+  const [chamber, setChamber] = useState<boolean>(initialData?.chamber ?? false);
+  const [outletsUsed, setOutletsUsed] = useState<number>(initialData?.outlets_used ?? 0);
+  const [devicesText, setDevicesText] = useState<string>(
+    initialData?.devices?.map((d: any) => `${d.type},${d.name},${d.quantity},${d.location ?? ""},${d.notes ?? ""}`).join("\n") ?? ""
   );
-  const [connectionsText, setConnectionsText] = useState(
-    initialData?.connections?.map((c: any) => `${c.from_device},${c.from_port || ""},${c.to_device},${c.to_port || ""},${c.cable_type || ""},${c.notes || ""}`).join("\n") || ""
+  const [connectionsText, setConnectionsText] = useState<string>(
+    initialData?.connections?.map((c: any) => `${c.from_device},${c.from_port ?? ""},${c.to_device},${c.to_port ?? ""},${c.cable_type ?? ""},${c.notes ?? ""}`).join("\n") ?? ""
   );
 
   async function handleSubmit(e: React.FormEvent) {
@@ -30,7 +30,7 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
     const devices = devicesText
       .split("\n")
       .filter(Boolean)
-      .map((line) => {
+      .map((line: string) => {
         const [type, name, quantity, location, notes] = line.split(",");
         return {
           type: type?.trim(),
@@ -44,7 +44,7 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
     const connections = connectionsText
       .split("\n")
       .filter(Boolean)
-      .map((line) => {
+      .map((line: string) => {
         const [from_device, from_port, to_device, to_port, cable_type, notes] = line.split(",");
         return {
           from_device: from_device?.trim(),
