@@ -71,6 +71,7 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
   );
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   function markTouched(field: string) {
     setTouched((current) => ({ ...current, [field]: true }));
@@ -90,11 +91,21 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
 
   const isValid = validate();
 
+  const canSubmit =
+    isValid.name &&
+    isValid.description &&
+    isValid.outletsUsed &&
+    isValid.devices &&
+    isValid.deviceNames &&
+    isValid.chamberDevices &&
+    isValid.chamberDeviceNames;
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitAttempted(true);
+    setSubmitError(null);
 
-    if (!isValid.name || !isValid.description || !isValid.devices || !isValid.deviceNames || !isValid.chamberDevices || !isValid.chamberDeviceNames) {
+    if (!canSubmit) {
       return;
     }
 
@@ -108,14 +119,17 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
       connections: [],
     };
 
-    if (mode === "create") {
-      const created = await createSetup(payload);
-      router.push(`/`);
-      router.refresh();
-      window.localStorage.setItem("setup_resource_manager_new_setup", String(created.id));
-    } else if (setupId) {
-      await updateSetup(setupId, payload);
-      router.push(`/setups/${setupId}`);
+    try {
+      if (mode === "create") {
+        const created = await createSetup(payload);
+        window.localStorage.setItem("setup_resource_manager_new_setup", String(created.id));
+        window.location.assign("/");
+      } else if (setupId) {
+        await updateSetup(setupId, payload);
+        router.push(`/setups/${setupId}`);
+      }
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Failed to save setup");
     }
   }
 
@@ -257,6 +271,9 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
           ))}
         </div>
       </div>
+
+      {submitError ? <div className="field-error" style={{ padding: 12, marginBottom: 12 }}>{submitError}</div> : null}
+      {!canSubmit && submitAttempted ? <div className="field-error" style={{ padding: 12, marginBottom: 12 }}>Please fill in the required fields.</div> : null}
 
       <button type="submit">{mode === "create" ? "Create" : "Save"}</button>
     </form>
