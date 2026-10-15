@@ -4,11 +4,41 @@ import { useState } from "react";
 import { createSetup, updateSetup } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
+type DeviceEntry = {
+  type: string;
+  name: string;
+  quantity: number;
+  location: string;
+  notes: string;
+};
+
 type Props = {
   mode: "create" | "edit";
   setupId?: number;
   initialData?: any;
 };
+
+const DEVICE_TYPES = [
+  "computer",
+  "laptop",
+  "monitor",
+  "switch",
+  "router",
+  "camera",
+  "printer",
+  "ups",
+  "other",
+];
+
+function emptyDevice(): DeviceEntry {
+  return {
+    type: DEVICE_TYPES[0],
+    name: "",
+    quantity: 1,
+    location: "",
+    notes: "",
+  };
+}
 
 export default function SetupForm({ mode, setupId, initialData }: Props) {
   const router = useRouter();
@@ -17,52 +47,41 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
   const [description, setDescription] = useState<string>(initialData?.description ?? "");
   const [chamber, setChamber] = useState<boolean>(initialData?.chamber ?? false);
   const [outletsUsed, setOutletsUsed] = useState<number>(initialData?.outlets_used ?? 0);
-  const [devicesText, setDevicesText] = useState<string>(
-    initialData?.devices?.map((d: any) => `${d.type},${d.name},${d.quantity},${d.location ?? ""},${d.notes ?? ""}`).join("\n") ?? ""
+  const [hasChamberDevices, setHasChamberDevices] = useState<boolean>(Boolean(initialData?.chamber_devices?.length));
+  const [devices, setDevices] = useState<DeviceEntry[]>(
+    initialData?.devices?.length
+      ? initialData.devices.map((d: any) => ({
+          type: d.type ?? DEVICE_TYPES[0],
+          name: d.name ?? "",
+          quantity: d.quantity ?? 1,
+          location: d.location ?? "",
+          notes: d.notes ?? "",
+        }))
+      : [emptyDevice()]
   );
-  const [connectionsText, setConnectionsText] = useState<string>(
-    initialData?.connections?.map((c: any) => `${c.from_device},${c.from_port ?? ""},${c.to_device},${c.to_port ?? ""},${c.cable_type ?? ""},${c.notes ?? ""}`).join("\n") ?? ""
+  const [chamberDevices, setChamberDevices] = useState<DeviceEntry[]>(
+    initialData?.chamber_devices?.length
+      ? initialData.chamber_devices.map((d: any) => ({
+          type: d.type ?? DEVICE_TYPES[0],
+          name: d.name ?? "",
+          quantity: d.quantity ?? 1,
+          location: d.location ?? "",
+          notes: d.notes ?? "",
+        }))
+      : []
   );
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-
-    const devices = devicesText
-      .split("\n")
-      .filter(Boolean)
-      .map((line: string) => {
-        const [type, name, quantity, location, notes] = line.split(",");
-        return {
-          type: type?.trim(),
-          name: name?.trim(),
-          quantity: Number(quantity || 1),
-          location: location?.trim() || null,
-          notes: notes?.trim() || null,
-        };
-      });
-
-    const connections = connectionsText
-      .split("\n")
-      .filter(Boolean)
-      .map((line: string) => {
-        const [from_device, from_port, to_device, to_port, cable_type, notes] = line.split(",");
-        return {
-          from_device: from_device?.trim(),
-          from_port: from_port?.trim() || null,
-          to_device: to_device?.trim(),
-          to_port: to_port?.trim() || null,
-          cable_type: cable_type?.trim() || null,
-          notes: notes?.trim() || null,
-        };
-      });
 
     const payload = {
       name,
       description,
       chamber,
       outlets_used: outletsUsed,
-      devices,
-      connections,
+      devices: chamber ? [...devices, ...chamberDevices] : devices,
+      chamber_devices: chamber ? chamberDevices : [],
+      connections: [],
     };
 
     if (mode === "create") {
@@ -74,6 +93,20 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
     }
   }
 
+  function updateDevice(listSetter: React.Dispatch<React.SetStateAction<DeviceEntry[]>>, index: number, key: keyof DeviceEntry, value: string | number) {
+    listSetter((current) =>
+      current.map((device, i) => (i === index ? { ...device, [key]: value } : device))
+    );
+  }
+
+  function addDevice(listSetter: React.Dispatch<React.SetStateAction<DeviceEntry[]>>) {
+    listSetter((current) => [...current, emptyDevice()]);
+  }
+
+  function removeDevice(listSetter: React.Dispatch<React.SetStateAction<DeviceEntry[]>>, index: number) {
+    listSetter((current) => current.filter((_, i) => i !== index));
+  }
+
   return (
     <form className="card" onSubmit={handleSubmit}>
       <label>
@@ -83,46 +116,183 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
 
       <label>
         Description
-        <textarea value={description} onChange={(e) => setDescription(e.target.value)} />
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={4}
+          style={{ resize: "vertical" }}
+        />
       </label>
 
       <label>
         Chamber
-        <input
-          type="checkbox"
-          checked={chamber}
-          onChange={(e) => setChamber(e.target.checked)}
-        />
+        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <input
+              type="radio"
+              name="chamber"
+              checked={chamber}
+              onChange={() => setChamber(true)}
+            />
+            Chamber setup
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <input
+              type="radio"
+              name="chamber"
+              checked={!chamber}
+              onChange={() => setChamber(false)}
+            />
+            Not chamber setup
+          </label>
+        </div>
       </label>
 
-      <label>
-        Outlets used
-        <input
-          type="number"
-          value={outletsUsed}
-          onChange={(e) => setOutletsUsed(Number(e.target.value))}
-        />
-      </label>
+      {chamber && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+            <h3 style={{ margin: 0 }}>Chamber devices</h3>
+            {!hasChamberDevices ? (
+              <button type="button" onClick={() => setHasChamberDevices(true)}>
+                Add chamber
+              </button>
+            ) : (
+              <button type="button" className="secondary" onClick={() => setHasChamberDevices(false)}>
+                Remove chamber
+              </button>
+            )}
+          </div>
 
-      <label>
-        Devices: one per line, CSV format
-        <textarea
-          rows={6}
-          value={devicesText}
-          onChange={(e) => setDevicesText(e.target.value)}
-          placeholder="pc,PC-1,1,desk,Alice workstation"
-        />
-      </label>
+          {hasChamberDevices && (
+            <div style={{ marginTop: 12 }}>
+              {chamberDevices.map((device, index) => (
+                <div key={`chamber-${index}`} className="card" style={{ background: "#fafafa" }}>
+                  <label>
+                    Device type
+                    <select
+                      value={device.type}
+                      onChange={(e) => updateDevice(setChamberDevices, index, "type", e.target.value)}
+                    >
+                      {DEVICE_TYPES.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
 
-      <label>
-        Connections: one per line, CSV format
-        <textarea
-          rows={6}
-          value={connectionsText}
-          onChange={(e) => setConnectionsText(e.target.value)}
-          placeholder="PC-1,LAN1,Switch-1,Port1,Cat6,uplink"
-        />
-      </label>
+                  <label>
+                    Device name
+                    <input
+                      value={device.name}
+                      onChange={(e) => updateDevice(setChamberDevices, index, "name", e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    Quantity
+                    <input
+                      type="number"
+                      value={device.quantity}
+                      onChange={(e) => updateDevice(setChamberDevices, index, "quantity", Number(e.target.value))}
+                    />
+                  </label>
+
+                  <label>
+                    Location
+                    <input
+                      value={device.location}
+                      onChange={(e) => updateDevice(setChamberDevices, index, "location", e.target.value)}
+                    />
+                  </label>
+
+                  <label>
+                    Notes
+                    <textarea
+                      value={device.notes}
+                      onChange={(e) => updateDevice(setChamberDevices, index, "notes", e.target.value)}
+                    />
+                  </label>
+
+                  <button type="button" className="secondary" onClick={() => removeDevice(setChamberDevices, index)}>
+                    Remove device
+                  </button>
+                </div>
+              ))}
+
+              <button type="button" onClick={() => addDevice(setChamberDevices)}>
+                Add device
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="card" style={{ marginTop: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <h3 style={{ margin: 0 }}>Devices</h3>
+          <button type="button" onClick={() => addDevice(setDevices)}>
+            Add device
+          </button>
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          {devices.map((device, index) => (
+            <div key={index} className="card" style={{ background: "#fafafa" }}>
+              <label>
+                Device type
+                <select
+                  value={device.type}
+                  onChange={(e) => updateDevice(setDevices, index, "type", e.target.value)}
+                >
+                  {DEVICE_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Device name
+                <input
+                  value={device.name}
+                  onChange={(e) => updateDevice(setDevices, index, "name", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Quantity
+                <input
+                  type="number"
+                  value={device.quantity}
+                  onChange={(e) => updateDevice(setDevices, index, "quantity", Number(e.target.value))}
+                />
+              </label>
+
+              <label>
+                Location
+                <input
+                  value={device.location}
+                  onChange={(e) => updateDevice(setDevices, index, "location", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Notes
+                <textarea
+                  value={device.notes}
+                  onChange={(e) => updateDevice(setDevices, index, "notes", e.target.value)}
+                />
+              </label>
+
+              <button type="button" className="secondary" onClick={() => removeDevice(setDevices, index)}>
+                Remove device
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
 
       <button type="submit">
         {mode === "create" ? "Create" : "Save"}
