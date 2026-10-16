@@ -1,5 +1,12 @@
 from sqlalchemy.orm import Session
 from . import models, schemas
+from .schemas import POWER_OUTLET
+
+
+def _sync_outlets(setup):
+    """Outlets used follows the devices plugged straight into a wall outlet, once any power info is given."""
+    if any(d.power_from for d in setup.devices):
+        setup.outlets_used = sum(1 for d in setup.devices if d.power_from == POWER_OUTLET)
 
 
 def create_setup(db: Session, setup_in: schemas.SetupCreate):
@@ -8,6 +15,7 @@ def create_setup(db: Session, setup_in: schemas.SetupCreate):
         description=setup_in.description,
         chamber=setup_in.chamber,
         outlets_used=setup_in.outlets_used,
+        chamber_count=setup_in.chamber_count if setup_in.chamber else 0,
     )
     db.add(setup)
     db.flush()
@@ -18,6 +26,12 @@ def create_setup(db: Session, setup_in: schemas.SetupCreate):
     for connection_in in setup_in.connections:
         db.add(models.Connection(setup_id=setup.id, **connection_in.model_dump()))
 
+    db.flush()
+    db.refresh(setup)
+    _sync_outlets(setup)
+    db.flush()
+    db.refresh(setup)
+    _sync_outlets(setup)
     db.commit()
     db.refresh(setup)
     return setup
@@ -56,12 +70,12 @@ def update_setup(db: Session, setup_id: int, setup_in: schemas.SetupUpdate):
     if devices is not None:
         db.query(models.Device).filter(models.Device.setup_id == setup_id).delete()
         for device_in in devices:
-            db.add(models.Device(setup_id=setup_id, **device_in.model_dump()))
+            db.add(models.Device(setup_id=setup_id, **device_in))
 
     if connections is not None:
         db.query(models.Connection).filter(models.Connection.setup_id == setup_id).delete()
         for connection_in in connections:
-            db.add(models.Connection(setup_id=setup_id, **connection_in.model_dump()))
+            db.add(models.Connection(setup_id=setup_id, **connection_in))
 
     db.commit()
     db.refresh(setup)

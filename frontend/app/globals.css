@@ -2,8 +2,32 @@ html, body {
   margin: 0;
   padding: 0;
   font-family: Arial, sans-serif;
-  background: #f7f7f7;
-  color: #111;
+  background: var(--bg);
+  color: var(--text);
+}
+
+:root {
+  --bg: #f7f7f7;
+  --text: #111;
+  --surface: #fff;
+  --surface-alt: #fafafa;
+  --border: #d1d5db;
+  --border-soft: #e5e7eb;
+  --shadow: rgba(0,0,0,0.08);
+  --error-bg: #fef2f2;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg: #0f172a;
+  --text: #e5e7eb;
+  --surface: #1e293b;
+  --surface-alt: #273549;
+  --border: #475569;
+  --border-soft: #334155;
+  --shadow: rgba(0,0,0,0.5);
+  --error-bg: #450a0a;
+  color-scheme: dark;
 }
 
 main {
@@ -13,11 +37,11 @@ main {
 }
 
 .card {
-  background: white;
+  background: var(--surface);
   border-radius: 12px;
   padding: 16px;
   margin-bottom: 16px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  box-shadow: 0 1px 4px var(--shadow);
 }
 
 button {
@@ -38,9 +62,11 @@ input, textarea, select {
   padding: 8px;
   margin-top: 6px;
   margin-bottom: 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border);
   border-radius: 8px;
   box-sizing: border-box;
+  background: var(--surface);
+  color: var(--text);
 }
 
 textarea {
@@ -51,7 +77,7 @@ textarea {
 
 .field-error {
   border-color: #dc2626;
-  background: #fef2f2;
+  background: var(--error-bg);
   outline: none;
   box-shadow: 0 0 0 1px #dc2626;
 }
@@ -59,11 +85,37 @@ textarea {
 table {
   width: 100%;
   border-collapse: collapse;
-  background: white;
+  background: var(--surface);
 }
 
 th, td {
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-soft);
   text-align: left;
   padding: 10px;
 }
+
+.data-table {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+}
+.data-table th, .data-table td {
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+.data-table th:last-child, .data-table td:last-child { border-right: 0; }
+.data-table tbody tr:last-child td { border-bottom: 0; }
+.data-table th { background: var(--surface-alt); font-weight: 600; }
+.data-table tbody tr:nth-child(even) td { background: var(--surface-alt); }
+.table-scroll { overflow-x: auto; }
+
+a {
+  color: #3b82f6;
+}
+
+/* Fixed top-left controls: semi-transparent until hovered/focused so they don't hide content. */
+.top-nav { opacity: 0.55; transition: opacity 0.15s; }
+.top-nav:hover, .top-nav:focus-within { opacity: 1; }
+.top-nav button { margin: 0; }

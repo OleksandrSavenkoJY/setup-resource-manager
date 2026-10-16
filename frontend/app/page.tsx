@@ -3,8 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { fetchSetups } from "@/lib/api";
+import ExportButton from "@/components/ExportButton";
+import { useCurrentUser } from "@/lib/useCurrentUser";
 
 export default function HomePage() {
+  const me = useCurrentUser();
   const [setups, setSetups] = useState<any[]>([]);
   const [newSetupId, setNewSetupId] = useState<string | null>(null);
 
@@ -22,12 +25,15 @@ export default function HomePage() {
   return (
     <main>
       <h1>Setup Resource Manager</h1>
-      <p>MVP list of setups</p>
+      <p>List of setups</p>
 
-      <div className="card">
-        <Link href="/new">
-          <button>Create new setup</button>
-        </Link>
+      <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+        {me?.role === "admin" && (
+          <Link href="/new">
+            <button>Create new setup</button>
+          </Link>
+        )}
+        <ExportButton />
       </div>
 
       <table>

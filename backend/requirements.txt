@@ -4,3 +4,6 @@ sqlalchemy
 psycopg2-binary
 pydantic>=2,<3
 python-dotenv
+openpyxl
+pillow
+cairosvg

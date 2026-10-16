@@ -1,5 +1,5 @@
 import SetupForm from "@/components/SetupForm";
-import { fetchSetup } from "@/lib/api";
+import { fetchSetup } from "@/lib/server-api";
 
 export default async function EditSetupPage({
   params,

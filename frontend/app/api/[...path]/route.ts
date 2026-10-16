@@ -5,16 +5,43 @@ export const dynamic = "force-dynamic";
 
 type Context = { params: { path: string[] } };
 
+const AUTH_ROUTES: Record<string, string> = {
+  "auth/status": "GET",
+  "auth/me": "GET",
+  "auth/login": "POST",
+  "auth/logout": "POST",
+  "auth/setup-admin": "POST",
+};
+
 async function proxy(request: Request, { params }: Context) {
   const path = params.path;
+  const authMethod = AUTH_ROUTES[path.join("/")];
   const collection = path.length === 1 && path[0] === "setups";
   const item = path.length === 2 && path[0] === "setups" && /^[1-9]\d*$/.test(path[1]);
   const prompt = path.length === 3 && path[0] === "setups" && /^[1-9]\d*$/.test(path[1]) && path[2] === "prompt";
 
-  if (!collection && !item && !prompt) {
+  const clone = path.length === 3 && path[0] === "setups" && /^[1-9]\d*$/.test(path[1]) && path[2] === "clone";
+
+  const diagram = path.length === 3 && path[0] === "setups" && /^[1-9]\d*$/.test(path[1]) && path[2] === "diagram";
+
+  const deviceTypes = (path[0] === "device-types" || path[0] === "interfaces") && (path.length === 1 || (path.length === 2 && /^[1-9]\d*$/.test(path[1])));
+  const photo = path.length === 3 && path[0] === "setups" && /^[1-9]\d*$/.test(path[1]) && path[2] === "photo";
+  const deviceIcons = path.length === 1 && path[0] === "device-icons";
+  const exportAll = path.length === 2 && path[0] === "export" && path[1] === "setups";
+  const exportOne = path.length === 3 && path[0] === "export" && path[1] === "setups" && /^[1-9]\d*$/.test(path[2]);
+
+  if (!authMethod && !collection && !item && !prompt && !clone && !diagram && !exportAll && !exportOne && !deviceTypes && !deviceIcons && !photo) {
     return NextResponse.json({ detail: "Not found" }, { status: 404 });
   }
-  const allowed = collection ? ["GET", "POST"] : item ? ["GET", "PUT", "DELETE"] : ["GET"];
+  const allowed = authMethod
+    ? [authMethod]
+    : collection ? ["GET", "POST"]
+    : item ? ["GET", "PUT", "DELETE"]
+    : deviceTypes ? (path.length === 1 ? ["GET", "POST"] : path[0] === "device-types" ? ["DELETE", "PATCH"] : ["DELETE"])
+    : photo ? ["GET", "PUT", "DELETE"]
+    : clone ? ["POST"]
+    : diagram ? ["GET", "POST"]
+    : ["GET"];
   if (!allowed.includes(request.method)) {
     return NextResponse.json({ detail: "Method not allowed" }, {
       status: 405,
@@ -26,21 +53,33 @@ async function proxy(request: Request, { params }: Context) {
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const base = (process.env.API_INTERNAL_URL || "http://backend:8000").replace(/\/$/, "");
-    const upstream = await fetch(`${base}/${path.join("/")}`, {
+    const upstreamHeaders: Record<string, string> = { "Content-Type": photo ? request.headers.get("content-type") || "application/octet-stream" : "application/json" };
+    const cookie = request.headers.get("cookie");
+    if (cookie) upstreamHeaders.Cookie = cookie;
+
+    const upstream = await fetch(`${base}/${path.join("/")}${new URL(request.url).search}`, {
       method: request.method,
-      headers: { "Content-Type": "application/json" },
-      body: request.method === "POST" || request.method === "PUT" ? await request.text() : undefined,
+      headers: upstreamHeaders,
+      body: photo && request.method === "PUT"
+        ? await request.arrayBuffer()
+        : request.method === "POST" || request.method === "PUT" || request.method === "PATCH" ? await request.text() : undefined,
       cache: "no-store",
       redirect: "manual",
       signal: controller.signal,
     });
-    const body = await upstream.text();
+    const body = await upstream.arrayBuffer();
+    const headers = new Headers({
+      "Content-Type": upstream.headers.get("content-type") || "application/json",
+      "Cache-Control": "no-store",
+    });
+    const disposition = upstream.headers.get("content-disposition");
+    if (disposition) headers.set("Content-Disposition", disposition);
+    for (const setCookie of upstream.headers.getSetCookie()) {
+      headers.append("Set-Cookie", setCookie);
+    }
     return new Response(upstream.status === 204 || upstream.status === 304 ? null : body, {
       status: upstream.status,
-      headers: {
-        "Content-Type": upstream.headers.get("content-type") || "application/json",
-        "Cache-Control": "no-store",
-      },
+      headers,
     });
   } catch (error) {
     const timedOut = controller.signal.aborted;
@@ -58,4 +97,5 @@ async function proxy(request: Request, { params }: Context) {
 export const GET = proxy;
 export const POST = proxy;
 export const PUT = proxy;
+export const PATCH = proxy;
 export const DELETE = proxy;
