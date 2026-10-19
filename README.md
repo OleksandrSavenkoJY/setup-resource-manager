@@ -31,6 +31,23 @@ Services:
 - Backend API: http://localhost:8000 (`/health`)
 - PostgreSQL: localhost:5433
 
+### Configuration (`.env`)
+`.env` is not stored in Git (it is in `.gitignore`); create it from the template:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Meaning |
+|---|---|
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Database name and credentials created on first start |
+| `DATABASE_URL` | Backend connection string, `postgresql+psycopg2://USER:PASSWORD@postgres:5432/DB`; user, password and DB must match the `POSTGRES_*` values |
+| `BACKEND_HOST`, `BACKEND_PORT` | Where the backend listens inside the container (keep `0.0.0.0` / `8000`) |
+| `NEXT_PUBLIC_API_URL` | Not used by the browser (it goes through the `/api` proxy); can be left as is |
+
+Change `POSTGRES_PASSWORD` (and the same password inside `DATABASE_URL`) before first start.
+Postgres only reads these values when the volume is created; to change the password later run `docker compose down -v` (this deletes the data) or change it inside the database.
+
 ### First run
 1. Open the frontend; it asks you to create the `admin` password.
 2. The first visitor sets this password, so do it right after deployment.
