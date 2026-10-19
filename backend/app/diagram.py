@@ -35,6 +35,8 @@ ICONS = {
     "router": f'<g {S}><rect x="4" y="19" width="32" height="12" rx="2" fill="#fff"/><path d="M10 19L7 7M30 19l3-12M10 25h2"/><circle cx="26" cy="25" r="1.3"/><circle cx="31" cy="25" r="1.3"/></g>',
     "camera": f'<g {S}><rect x="4" y="11" width="25" height="18" rx="2" fill="#fff"/><circle cx="16.5" cy="20" r="5"/><path d="M29 17l8-4v14l-8-4z" fill="#fff"/></g>',
     "printer": f'<g {S}><path d="M11 14V5h18v9"/><rect x="4" y="14" width="32" height="14" rx="2" fill="#fff"/><rect x="11" y="23" width="18" height="11" fill="#fff"/></g>',
+    "attenuator": f'<g {S}><path d="M2 20h8l2-7 4 14 4-14 4 14 2-7h12"/><rect x="6" y="8" width="28" height="24" rx="3" fill="none" stroke-dasharray="3 3"/>'
+                  '<path d="M12 35L28 5" stroke="#dc2626"/></g>',
     "cloud": f'<g {S}><path d="M11 30a7 7 0 0 1 0-14 9 9 0 0 1 17-2 7.5 7.5 0 0 1 1 16z" fill="#dbeafe"/></g>',
     "antenna": f'<g {S}><path d="M20 19v15M14 34h12M17 34l3-15 3 15"/><circle cx="20" cy="15" r="2.5" fill="#1e3a8a"/>'
                '<path d="M13 9a10 10 0 0 0 0 12M27 9a10 10 0 0 1 0 12M9 5a16 16 0 0 0 0 20M31 5a16 16 0 0 1 0 20"/></g>',
@@ -53,6 +55,7 @@ ICONS = {
 ICON_RULES = [
     (r"outlet|socket", "outlet"),
     (r"internet|cloud|^wan$|^mng$", "cloud"),
+    (r"attenuat|^att\d|\batt\b", "attenuator"),
     (r"antenn|^ant\d", "antenna"),
     (r"windows|^win\d*$", "pc_windows"),
     (r"linux|ubuntu|debian", "pc_linux"),
@@ -72,7 +75,7 @@ ICON_RULES = [
 ICON_LABELS = {
     "pc": "Computer", "laptop": "Laptop", "monitor": "Monitor", "ups": "UPS", "chip": "Chip",
     "board": "Board", "switch": "Switch", "router": "Router", "camera": "Camera",
-    "printer": "Printer", "cloud": "Internet", "antenna": "Antenna",
+    "printer": "Printer", "attenuator": "Attenuator", "cloud": "Internet", "antenna": "Antenna",
     "outlet": "Wall outlet", "pc_windows": "PC (Windows)", "pc_linux": "PC (Linux)", "generic": "Generic",
 }
 
@@ -654,6 +657,9 @@ def _frames(chambers, pos):
     """Chamber frames; a chamber is skipped when another device would end up inside its frame."""
     frames = []
     for label, members in chambers.items():
+        members = {m for m in members if m in pos}
+        if not members:
+            continue
         rects = [_rect(pos, m) for m in members]
         fr = (min(r[0] for r in rects) - 22, min(r[1] for r in rects) - 36,
               max(r[2] for r in rects) + 22, max(r[3] for r in rects) + 22)
@@ -663,15 +669,340 @@ def _frames(chambers, pos):
     return frames
 
 
+def _inline_chains(setup, nodes, all_conns):
+    """Chains of attenuators (each with exactly two data links) sit on the cable they interrupt."""
+    overrides = getattr(setup, "icon_overrides", None)
+    cand = {n for n, (_, _, t) in nodes.items() if n != OUTLET_KEY and icon_kind(t, overrides) == "attenuator"}
+    nbrs = {}
+    for n in cand:
+        links = [c for c in all_conns if n in (c.from_device, c.to_device) and not getattr(c, "power", False)]
+        if len(links) != 2 or any(c.from_device == c.to_device for c in links):
+            continue
+        ends = [c.to_device if c.from_device == n else c.from_device for c in links]
+        if ends[0] != ends[1]:
+            nbrs[n] = ends
+    chains, seen = [], set()
+    for n in sorted(nbrs):
+        if n in seen:
+            continue
+        # Walk to one end of the run of attenuators, then collect it in order.
+        first, prev = n, None
+        while True:
+            nxt = [x for x in nbrs[first] if x != prev and x in nbrs]
+            if not nxt or nxt[0] == n:
+                break
+            prev, first = first, nxt[0]
+        run, prev, cur = [], None, first
+        while cur in nbrs and cur not in seen:
+            seen.add(cur)
+            run.append(cur)
+            nxt = [x for x in nbrs[cur] if x != prev]
+            prev, cur = cur, (nxt[0] if nxt else None)
+            if cur is None:
+                break
+        a = next(x for x in nbrs[run[0]] if x not in run)
+        b = next(x for x in nbrs[run[-1]] if x not in run)
+        if a == b or a in nbrs or b in nbrs:
+            continue
+        chains.append({"atts": run, "a": a, "b": b})
+    return chains
+
+
+def _center(pos, n):
+    return pos[n][0] + BOX_W / 2, pos[n][1] + BOX_H / 2
+
+
+def _find_chain_spot(chain, pos, frames, others):
+    """Centres for the attenuators of a chain along the A-B line, in the middle of the longest clear stretch."""
+    a, b, k = chain["a"], chain["b"], len(chain["atts"])
+    ax, ay = _center(pos, a)
+    bx, by = _center(pos, b)
+    length = math.hypot(bx - ax, by - ay) or 1.0
+    ux, uy = (bx - ax) / length, (by - ay) / length
+    step = min(BOX_W / max(abs(ux), 1e-6), BOX_H / max(abs(uy), 1e-6)) + 30 if k > 1 else 0
+    obstacles = [_grow(fr, 20) for _, fr in frames] + [_rect(pos, a, 50), _rect(pos, b, 50)] + [_rect(pos, n, 6) for n in others]
+    samples = max(40, int(length / 6))
+    run_best, run_start, feasible = (0, None), None, []
+    for i in range(samples + 1):
+        s0 = length * i / samples
+        ok = True
+        for j in range(k):
+            cx, cy = ax + ux * (s0 + j * step), ay + uy * (s0 + j * step)
+            if (s0 + j * step) > length:
+                ok = False
+                break
+            r = (cx - BOX_W / 2, cy - BOX_H / 2, cx + BOX_W / 2, cy + BOX_H / 2)
+            if any(_overlap(r, o) for o in obstacles):
+                ok = False
+                break
+        feasible.append(ok)
+    for i, ok in enumerate(feasible + [False]):
+        if ok and run_start is None:
+            run_start = i
+        elif not ok and run_start is not None:
+            if i - run_start > run_best[0]:
+                run_best = (i - run_start, (run_start + i - 1) / 2)
+            run_start = None
+    if run_best[1] is None:
+        return None
+    s0 = length * run_best[1] / samples
+    return [(ax + ux * (s0 + j * step), ay + uy * (s0 + j * step)) for j in range(k)]
+
+
+def _settle_chains(chains, pos, base_groups):
+    """Place every chain's attenuators on its cable (no spot found: spread them from the midpoint)."""
+    members = {x for ch in chains for x in ch["atts"]}
+    base = {n: p for n, p in pos.items() if n not in members}
+    frames = _frames(base_groups, base)
+    for ch in chains:
+        spots = _find_chain_spot(ch, pos, frames, [n for n in base if n not in (ch["a"], ch["b"])])
+        if spots is None:
+            ax, ay = _center(pos, ch["a"])
+            bx, by = _center(pos, ch["b"])
+            k = len(ch["atts"])
+            spots = [(ax + (bx - ax) * (i + 1) / (k + 1), ay + (by - ay) * (i + 1) / (k + 1)) for i in range(k)]
+        for name, (cx, cy) in zip(ch["atts"], spots):
+            pos[name] = (cx - BOX_W / 2, cy - BOX_H / 2)
+    return pos
+
+
+def _make_room(chains, pos, base_groups):
+    """Initial layout: push the far side away until each chain fits between its two neighbours."""
+    members = {x for ch in chains for x in ch["atts"]}
+    for ch in chains:
+        a, b, k = ch["a"], ch["b"], len(ch["atts"])
+        for _ in range(10):
+            base = {n: p for n, p in pos.items() if n not in members}
+            frames = _frames(base_groups, base)
+            if _find_chain_spot(ch, pos, frames, [n for n in base if n not in (a, b)]) is not None:
+                break
+            ax, ay = _center(pos, a)
+            bx, by = _center(pos, b)
+            length = math.hypot(bx - ax, by - ay) or 1.0
+            ux, uy = (bx - ax) / length, (by - ay) / length
+            mid = ((ax + bx) / 2) * ux + ((ay + by) / 2) * uy
+            for n, (x, y) in list(pos.items()):
+                if n not in members and (x + BOX_W / 2) * ux + (y + BOX_H / 2) * uy > mid:
+                    pos[n] = (x + ux * 90 * k, y + uy * 90 * k)
+    return pos
+
+
+def _frame_rect(members, pos):
+    rects = [_rect(pos, m) for m in members]
+    return (min(r[0] for r in rects) - 22, min(r[1] for r in rects) - 36,
+            max(r[2] for r in rects) + 22, max(r[3] for r in rects) + 22)
+
+
+def _grow(r, g):
+    return (r[0] - g, r[1] - g, r[2] + g, r[3] + g)
+
+
+def _repair_frames(groups, pos):
+    """Chambers are separate physical boxes: keep their frames apart and free of foreign devices."""
+    in_chamber = set().union(*groups.values()) if groups else set()
+    labels = [k for k, v in groups.items() if v]
+    for _ in range(80):
+        moved = False
+        # 1. Chamber frames must never touch each other.
+        for ai, a in enumerate(labels):
+            for b in labels[ai + 1:]:
+                fa, fb = _frame_rect(groups[a], pos), _frame_rect(groups[b], pos)
+                if not _overlap(_grow(fa, 18), fb):
+                    continue
+                shifts = [
+                    (fa[2] + 18 - fb[0], 0), (fa[0] - 18 - fb[2], 0),
+                    (0, fa[3] + 18 - fb[1]), (0, fa[1] - 18 - fb[3]),
+                ]
+                dx, dy = min(shifts, key=lambda s: abs(s[0]) + abs(s[1]))
+                for m in groups[b]:
+                    pos[m] = (pos[m][0] + dx, pos[m][1] + dy)
+                moved = True
+        # 2. Devices that belong to no chamber must stay outside every frame.
+        for label in labels:
+            fr = _frame_rect(groups[label], pos)
+            for n in list(pos):
+                if n in in_chamber or not _overlap(fr, _rect(pos, n)):
+                    continue
+                x, y = pos[n]
+                options = [(fr[0] - 8 - BOX_W, y), (fr[2] + 8, y), (x, fr[1] - 8 - BOX_H), (x, fr[3] + 8)]
+                options.sort(key=lambda p: abs(p[0] - x) + abs(p[1] - y))
+                pos[n] = next(
+                    (p for p in options if not any(
+                        m != n and _overlap(_grow((p[0], p[1], p[0] + BOX_W, p[1] + BOX_H), 10), _rect(pos, m))
+                        for m in pos
+                    )),
+                    options[0],
+                )
+                moved = True
+        if not moved:
+            break
+    # Last resort for free devices still overlapping something: search outward for a clear spot.
+    frames = [_frame_rect(groups[k], pos) for k in labels]
+    for n in [n for n in pos if n not in in_chamber]:
+        def bad(p):
+            r = (p[0], p[1], p[0] + BOX_W, p[1] + BOX_H)
+            return any(_overlap(r, f) for f in frames) or any(
+                m != n and _overlap(_grow(r, 8), _rect(pos, m)) for m in pos
+            )
+        if not bad(pos[n]):
+            continue
+        x, y = pos[n]
+        for ring in range(1, 12):
+            step = ring * 60
+            cands = [(x + dx * step, y + dy * step) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if dx or dy]
+            ok = next((p for p in cands if p[0] >= 0 and p[1] >= 0 and not bad(p)), None)
+            if ok:
+                pos[n] = ok
+                break
+    return pos
+
+
+def _count_crossings(edges):
+    k = 0
+    for i, e in enumerate(edges):
+        for f in edges[i + 1:]:
+            if len({e["src"], e["dst"], f["src"], f["dst"]}) < 4:
+                continue
+            if any(_cross(a, b, p, q) for a, b in zip(e["path"], e["path"][1:]) for p, q in zip(f["path"], f["path"][1:])):
+                k += 1
+    return k
+
+
+def _refine(pos, edge_pairs, groups, chains, width, height, seed=11):
+    """Local search: no crossings, no overlaps, chambers apart, attenuators on their cables between the chambers."""
+    in_att = {x for ch in chains for x in ch["atts"]}
+    movable = [n for n in pos if n not in in_att]
+    if len(movable) < 3:
+        return pos
+    names = list(pos)
+    labels = [k for k, v in groups.items() if v]
+    in_chamber = set().union(*groups.values()) if groups else set()
+
+    def settle(p):
+        return _settle_chains(chains, dict(p), groups) if chains else dict(p)
+
+    def cost(p, parts=False):
+        centers = {n: (x + BOX_W / 2, y + BOX_H / 2) for n, (x, y) in p.items()}
+        rects = {n: _rect(p, n) for n in p}
+        hard = 0.0
+        segs = [(a, b, centers[a], centers[b]) for a, b in edge_pairs]
+        for i, (a, b, pa, pb) in enumerate(segs):
+            for c, d, pc, pd in segs[i + 1:]:
+                if len({a, b, c, d}) == 4 and _cross(pa, pb, pc, pd):
+                    hard += 1000
+            for n in names:
+                if n not in (a, b) and _seg_hits_rect(pa, pb, _grow(rects[n], 4)):
+                    hard += 300
+        frames = [(k, _frame_rect(groups[k], p)) for k in labels]
+        for i, (_, fa) in enumerate(frames):
+            for _, fb in frames[i + 1:]:
+                if _overlap(_grow(fa, 18), fb):
+                    hard += 2000
+            for n in names:
+                if n not in in_chamber and _overlap(fa, rects[n]):
+                    hard += 2000
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                if _overlap(_grow(rects[a], 8), rects[b]):
+                    hard += 2000
+        length = sum(0.01 * math.dist(pa, pb) for _, _, pa, pb in segs)
+        return hard if parts else hard + length
+
+    best = settle(pos)
+    best_cost = cost(best)
+    if cost(best, True) == 0:
+        return best
+    iters = min(7000, 500 * len(names))
+    start = dict(best)
+    for attempt in range(3):
+        rng = random.Random(seed + attempt * 101)
+        best, best_cost = _anneal(cost, settle, start, best, best_cost, groups, labels, movable, rng, iters, width, height)
+        if cost(best, True) == 0:
+            break
+    return best
+
+
+def _anneal(cost, settle, start, best, best_cost, groups, labels, names, rng, iters, max_x, max_y):
+    cur, cur_cost = dict(start), cost(start)
+    for it in range(iters):
+        temp = 400.0 * (1 - it / iters) + 1.0
+        cand = dict(cur)
+        r = rng.random()
+        if r < 0.5:
+            n = rng.choice(names)
+            if rng.random() < 0.7:
+                m = rng.choice(names)
+                cand[n] = (cand[m][0] + rng.choice((-1, 1)) * rng.uniform(0.9, 2.2) * (BOX_W + 30) * rng.random(),
+                           cand[m][1] + rng.choice((-1, 1)) * rng.uniform(0.9, 2.2) * (BOX_H + 30) * rng.random())
+            else:
+                cand[n] = (rng.uniform(0, max_x), rng.uniform(0, max_y))
+        elif r < 0.7:
+            a, b = rng.sample(names, 2)
+            cand[a], cand[b] = cand[b], cand[a]
+        elif labels:
+            g = [m for m in groups[rng.choice(labels)] if m in cand]
+            dx, dy = rng.randint(-6, 6) * 60, rng.randint(-6, 6) * 60
+            for m in g:
+                cand[m] = (cand[m][0] + dx, cand[m][1] + dy)
+        else:
+            continue
+        if any(x < 0 or y < 0 for x, y in cand.values()):
+            sx = min(0, min(x for x, _ in cand.values()))
+            sy = min(0, min(y for _, y in cand.values()))
+            cand = {n: (x - sx, y - sy) for n, (x, y) in cand.items()}
+        cand = settle(cand)
+        c = cost(cand)
+        if c <= cur_cost or rng.random() < math.exp(-(c - cur_cost) / temp):
+            cur, cur_cost = cand, c
+            if c < best_cost:
+                best, best_cost = cand, c
+                if cost(best, True) == 0:
+                    break
+    return best, best_cost
+
+
 def _prepare(setup):
     nodes = _nodes(setup)
     chambers = _chambers(setup, nodes)
     all_conns = list(setup.connections) + _power_links(setup)
-    pos, width, height = _layout(list(nodes), all_conns, list(chambers.values()))
-    edges = _route(all_conns, pos, width, height)
+    chains = _inline_chains(setup, nodes, all_conns)
+    in_att = {x for ch in chains for x in ch["atts"]}
+    layout_names = [n for n in nodes if n not in in_att]
+    layout_conns = [c for c in all_conns if c.from_device not in in_att and c.to_device not in in_att]
+    layout_conns += [
+        SimpleNamespace(from_device=ch["a"], from_port="", to_device=ch["b"], to_port="", cable_type="", notes="")
+        for ch in chains
+    ]
+    base_groups = {k: set(v) - in_att for k, v in chambers.items()}
+    pos, width, height = _layout(layout_names, layout_conns, list(base_groups.values()))
+    _repair_frames(base_groups, pos)
+    pos = _make_room(chains, pos, base_groups)
+    pos = _settle_chains(chains, pos, base_groups)
+    pairs = sorted({tuple(sorted((c.from_device, c.to_device))) for c in all_conns if c.from_device != c.to_device})
+
+    for attempt in range(3):
+        refined = _refine(pos, pairs, base_groups, chains, width, height, seed=11 + attempt * 7)
+        minx = min(x for x, _ in refined.values())
+        miny = min(y for _, y in refined.values())
+        shifted = {n: (x - minx + MARGIN, y - miny + MARGIN) for n, (x, y) in refined.items()}
+        w = int(max(x for x, _ in shifted.values()) + BOX_W + MARGIN)
+        h = int(max(y for _, y in shifted.values()) + BOX_H + MARGIN)
+        edges = _route(all_conns, shifted, w, h)
+        if _count_crossings(edges) == 0:
+            break
+    pos, width, height = shifted, max(w, 1), max(h, 1)
+    frames = _frames(base_groups, {n: p for n, p in pos.items() if n not in in_att})
+    where = {m: re.sub(r"(?i)chamber\s*", "Ch", k) for k, v in base_groups.items() for m in v}
+    for ch in chains:
+        if where.get(ch["a"]) and where.get(ch["b"]) and where[ch["a"]] != where[ch["b"]]:
+            for att in ch["atts"]:
+                title, _sub, dtype = nodes[att]
+                nodes[att] = (title, f"between {where[ch['a']]} and {where[ch['b']]}", dtype)
     _place_labels(edges, pos, width, height)
-    frames = _frames(chambers, pos)
     return nodes, pos, width, height, edges, frames
+
+
+LAYOUT_VERSION = 3
 
 
 def build_svg(setup) -> str:
@@ -679,7 +1010,7 @@ def build_svg(setup) -> str:
     nodes, pos, width, height, edges, frames = _prepare(setup)
     out = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
-        f'viewBox="0 0 {width} {height}" font-family="Arial, sans-serif" font-size="12">',
+        f'viewBox="0 0 {width} {height}" font-family="Arial, sans-serif" font-size="12" data-layout="{LAYOUT_VERSION}">',
         f'<rect width="{width}" height="{height}" fill="#ffffff"/>',
         '<defs><marker id="ae" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">'
         '<path d="M0,0L10,5L0,10z" fill="#374151"/></marker>'

@@ -62,6 +62,13 @@ def _conn_row(s, c):
     return [s.id, s.name, c.from_device, c.from_port, c.to_device, c.to_port, c.cable_type, c.notes]
 
 
+NET_HEADERS = ["Setup ID", "Setup", "Device", "Interface", "Type", "IP", "MAC"]
+
+
+def _net_rows(s):
+    return [[s.id, s.name, d.name, n.name, n.type, n.ip, n.mac] for d in s.devices for n in d.net_interfaces]
+
+
 DEVICE_HEADERS = ["Setup ID", "Setup", "Type", "Device", "Location", "Powered from", "Notes"]
 CONN_HEADERS = ["Setup ID", "Setup", "From device", "From interface", "To device", "To interface", "Cable", "Notes"]
 
@@ -93,13 +100,14 @@ def build_xlsx(setups, scope: str) -> bytes:
     _write_table(wb.create_sheet("Devices"), DEVICE_HEADERS, [_device_row(s, d) for s in setups for d in s.devices])
 
     if scope in ("connections", "full"):
+        _write_table(wb.create_sheet("Network"), NET_HEADERS, [r for s in setups for r in _net_rows(s)])
         _write_table(
             wb.create_sheet("Connections"), CONN_HEADERS,
             [_conn_row(s, c) for s in setups for c in s.connections],
         )
 
     if scope == "full":
-        used = {"setups", "devices", "connections"}
+        used = {"setups", "devices", "connections", "network"}
         for s in setups:
             sheet = wb.create_sheet(_sheet_title(f"Schema {s.id} {s.name}", used))
             sheet["A1"] = f"{s.name} (ID {s.id})"
@@ -133,6 +141,7 @@ def build_single_xlsx(setup) -> bytes:
         ws.cell(row=ws.max_row, column=2).alignment = Alignment(wrap_text=True, vertical="top")
 
     _write_table(wb.create_sheet("Devices"), DEVICE_HEADERS[2:], [_device_row(setup, d)[2:] for d in setup.devices])
+    _write_table(wb.create_sheet("Network"), NET_HEADERS[2:], [r[2:] for r in _net_rows(setup)])
     _write_table(
         wb.create_sheet("Connections"), CONN_HEADERS[2:],
         [_conn_row(setup, c)[2:] for c in setup.connections],

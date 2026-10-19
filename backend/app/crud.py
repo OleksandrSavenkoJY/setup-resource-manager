@@ -9,6 +9,12 @@ def _sync_outlets(setup):
         setup.outlets_used = sum(1 for d in setup.devices if d.power_from == POWER_OUTLET)
 
 
+def _new_device(setup_id: int, data: dict) -> models.Device:
+    data = dict(data)
+    nets = data.pop("net_interfaces", None) or []
+    return models.Device(setup_id=setup_id, net_interfaces=[models.NetInterface(**n) for n in nets], **data)
+
+
 def create_setup(db: Session, setup_in: schemas.SetupCreate):
     setup = models.Setup(
         name=setup_in.name,
@@ -21,7 +27,7 @@ def create_setup(db: Session, setup_in: schemas.SetupCreate):
     db.flush()
 
     for device_in in setup_in.devices:
-        db.add(models.Device(setup_id=setup.id, **device_in.model_dump()))
+        db.add(_new_device(setup.id, device_in.model_dump()))
 
     for connection_in in setup_in.connections:
         db.add(models.Connection(setup_id=setup.id, **connection_in.model_dump()))
@@ -68,9 +74,11 @@ def update_setup(db: Session, setup_id: int, setup_in: schemas.SetupUpdate):
         setattr(setup, key, value)
 
     if devices is not None:
-        db.query(models.Device).filter(models.Device.setup_id == setup_id).delete()
+        for old in list(setup.devices):
+            db.delete(old)
+        db.flush()
         for device_in in devices:
-            db.add(models.Device(setup_id=setup_id, **device_in))
+            db.add(_new_device(setup_id, device_in))
 
     if connections is not None:
         db.query(models.Connection).filter(models.Connection.setup_id == setup_id).delete()

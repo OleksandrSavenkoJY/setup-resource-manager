@@ -22,15 +22,18 @@ async function proxy(request: Request, { params }: Context) {
 
   const clone = path.length === 3 && path[0] === "setups" && /^[1-9]\d*$/.test(path[1]) && path[2] === "clone";
 
+  const netDiagram = path.length === 3 && path[0] === "setups" && /^[1-9]\d*$/.test(path[1]) && path[2] === "network-diagram";
   const diagram = path.length === 3 && path[0] === "setups" && /^[1-9]\d*$/.test(path[1]) && path[2] === "diagram";
 
   const deviceTypes = (path[0] === "device-types" || path[0] === "interfaces") && (path.length === 1 || (path.length === 2 && /^[1-9]\d*$/.test(path[1])));
   const photo = path.length === 3 && path[0] === "setups" && /^[1-9]\d*$/.test(path[1]) && path[2] === "photo";
+  const officeMap = path.length === 1 && path[0] === "office-map";
+  const location = path.length === 3 && path[0] === "setups" && /^[1-9]\d*$/.test(path[1]) && path[2] === "location";
   const deviceIcons = path.length === 1 && path[0] === "device-icons";
   const exportAll = path.length === 2 && path[0] === "export" && path[1] === "setups";
   const exportOne = path.length === 3 && path[0] === "export" && path[1] === "setups" && /^[1-9]\d*$/.test(path[2]);
 
-  if (!authMethod && !collection && !item && !prompt && !clone && !diagram && !exportAll && !exportOne && !deviceTypes && !deviceIcons && !photo) {
+  if (!authMethod && !collection && !item && !prompt && !clone && !diagram && !exportAll && !exportOne && !deviceTypes && !deviceIcons && !photo && !officeMap && !location && !netDiagram) {
     return NextResponse.json({ detail: "Not found" }, { status: 404 });
   }
   const allowed = authMethod
@@ -38,7 +41,8 @@ async function proxy(request: Request, { params }: Context) {
     : collection ? ["GET", "POST"]
     : item ? ["GET", "PUT", "DELETE"]
     : deviceTypes ? (path.length === 1 ? ["GET", "POST"] : path[0] === "device-types" ? ["DELETE", "PATCH"] : ["DELETE"])
-    : photo ? ["GET", "PUT", "DELETE"]
+    : photo || officeMap ? ["GET", "PUT", "DELETE"]
+    : location ? ["PUT"]
     : clone ? ["POST"]
     : diagram ? ["GET", "POST"]
     : ["GET"];
@@ -53,14 +57,14 @@ async function proxy(request: Request, { params }: Context) {
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const base = (process.env.API_INTERNAL_URL || "http://backend:8000").replace(/\/$/, "");
-    const upstreamHeaders: Record<string, string> = { "Content-Type": photo ? request.headers.get("content-type") || "application/octet-stream" : "application/json" };
+    const upstreamHeaders: Record<string, string> = { "Content-Type": photo || officeMap ? request.headers.get("content-type") || "application/octet-stream" : "application/json" };
     const cookie = request.headers.get("cookie");
     if (cookie) upstreamHeaders.Cookie = cookie;
 
     const upstream = await fetch(`${base}/${path.join("/")}${new URL(request.url).search}`, {
       method: request.method,
       headers: upstreamHeaders,
-      body: photo && request.method === "PUT"
+      body: (photo || officeMap) && request.method === "PUT"
         ? await request.arrayBuffer()
         : request.method === "POST" || request.method === "PUT" || request.method === "PATCH" ? await request.text() : undefined,
       cache: "no-store",

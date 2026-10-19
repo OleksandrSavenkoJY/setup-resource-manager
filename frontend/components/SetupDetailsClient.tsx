@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import ExportButton from "@/components/ExportButton";
-import { cloneSetup, deletePhoto, deleteSetup, fetchPhotoUrl, generateDiagram, uploadPhoto, type Diagram } from "@/lib/api";
+import ZoomableImage from "@/components/ZoomableImage";
+import OfficeMapView from "@/components/OfficeMapView";
+import { cloneSetup, deletePhoto, deleteSetup, fetchMapUrl, fetchNetworkSvg, fetchPhotoUrl, generateDiagram, setSetupLocation, uploadPhoto, type Diagram } from "@/lib/api";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 
 type Props = {
@@ -20,13 +22,43 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
   const [diagram, setDiagram] = useState<Diagram | null>(initialDiagram);
   const [isGenerating, setIsGenerating] = useState(false);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-  const [view, setView] = useState<"photo" | "generated">("photo");
+  const [view, setView] = useState<"photo" | "generated" | "location" | "network">("photo");
+  const [netSvg, setNetSvg] = useState<string | null>(null);
+  const netRows = (setup.devices ?? []).flatMap((d: any) => (d.net_interfaces ?? []).map((n: any) => ({ device: d.name, ...n })));
+  const [mapUrl, setMapUrl] = useState<string | null>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(
+    setup.map_x != null && setup.map_y != null ? { x: setup.map_x, y: setup.map_y } : null
+  );
+  const [placing, setPlacing] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchPhotoUrl(setup.id).then(setPhotoUrl).catch(console.error);
+    fetchMapUrl().then(setMapUrl).catch(console.error);
+    if (netRows.length) fetchNetworkSvg(setup.id).then((s) => setNetSvg(s || null)).catch(console.error);
   }, [setup.id]);
+
+  async function handlePlace(x: number, y: number) {
+    try {
+      setError(null);
+      await setSetupLocation(setup.id, { x, y });
+      setPos({ x, y });
+      setPlacing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save location");
+    }
+  }
+
+  async function handleClearLocation() {
+    try {
+      setError(null);
+      await setSetupLocation(setup.id, null);
+      setPos(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to clear location");
+    }
+  }
 
   async function handlePhotoChosen(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -162,6 +194,30 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
         )}
       </div>
 
+      {netRows.length > 0 && (
+        <div className="card">
+          <h2>Network</h2>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr><th>Device</th><th>Interface</th><th>Type</th><th>IP</th><th>MAC</th></tr>
+              </thead>
+              <tbody>
+                {netRows.map((n: any, i: number) => (
+                  <tr key={i}>
+                    <td>{n.device}</td>
+                    <td>{n.name || "-"}</td>
+                    <td>{n.type || "-"}</td>
+                    <td>{n.ip || "-"}</td>
+                    <td>{n.mac || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <h2>Connections</h2>
         {setup.connections?.length ? (
@@ -191,13 +247,37 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
 
       <div className="card">
         <h2>Schema</h2>
-        {photoUrl && diagram ? (
-          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <button type="button" className={view === "photo" ? "" : "secondary"} onClick={() => setView("photo")}>Photo</button>
-            <button type="button" className={view === "generated" ? "" : "secondary"} onClick={() => setView("generated")}>Generated schema</button>
+        {[photoUrl, diagram, mapUrl, netSvg].filter(Boolean).length > 1 ? (
+          <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+            {photoUrl && <button type="button" className={view === "photo" ? "" : "secondary"} onClick={() => setView("photo")}>Photo</button>}
+            {diagram && <button type="button" className={view === "generated" ? "" : "secondary"} onClick={() => setView("generated")}>Generated schema</button>}
+            {netSvg && <button type="button" className={view === "network" ? "" : "secondary"} onClick={() => setView("network")}>Network diagram</button>}
+            {mapUrl && <button type="button" className={view === "location" ? "" : "secondary"} onClick={() => setView("location")}>Office location</button>}
           </div>
         ) : null}
-        {photoUrl && (view === "photo" || !diagram) ? (
+        {netSvg && (view === "network" || (!photoUrl && !diagram && !mapUrl)) ? (
+          <ZoomableImage alt="Network diagram" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(netSvg)}`} />
+        ) : mapUrl && (view === "location" || (!photoUrl && !diagram)) ? (
+          <>
+            <OfficeMapView
+              imageUrl={mapUrl}
+              markers={pos ? [{ id: setup.id, name: setup.name, ...pos }] : []}
+              activeIds={pos ? [setup.id] : []}
+              placing={placing}
+              onPlace={handlePlace}
+            />
+            {!pos && !placing ? <p>This setup is not placed on the office map yet.</p> : null}
+            {placing ? <p><b>Click on the map to set the location.</b></p> : null}
+            {isAdmin && (
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button type="button" onClick={() => setPlacing((p) => !p)}>
+                  {placing ? "Cancel" : pos ? "Move marker" : "Set location"}
+                </button>
+                {pos && !placing ? <button type="button" className="secondary" onClick={handleClearLocation}>Remove marker</button> : null}
+              </div>
+            )}
+          </>
+        ) : photoUrl && (view === "photo" || !diagram) ? (
           <img
             alt="Setup photo"
             src={photoUrl}
@@ -205,12 +285,7 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
           />
         ) : diagram ? (
           <>
-            {/* <img> with a data URI keeps the SVG inert (no script execution). */}
-            <img
-              alt="Setup schema"
-              src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(diagram.svg)}`}
-              style={{ maxWidth: "100%", height: "auto", background: "#fff", borderRadius: 8 }}
-            />
+            <ZoomableImage alt="Setup schema" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(diagram.svg)}`} />
             <p style={{ fontSize: 12, opacity: 0.7 }}>
               Generated {new Date(diagram.generated_at + "Z").toLocaleString()}
             </p>

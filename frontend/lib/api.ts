@@ -186,3 +186,35 @@ async function photoRequest(setupId: number, init: RequestInit) {
 export const uploadPhoto = (setupId: number, file: File) =>
   photoRequest(setupId, { method: "PUT", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
 export const deletePhoto = (setupId: number) => photoRequest(setupId, { method: "DELETE" });
+
+export async function fetchMapUrl(): Promise<string | null> {
+  const res = await fetch("/api/office-map", { cache: "no-store" });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Failed to load map (${res.status})`);
+  return URL.createObjectURL(await res.blob());
+}
+
+async function mapRequest(url: string, init: RequestInit) {
+  const res = await fetch(url, { ...init, cache: "no-store" });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail ?? detail; } catch {}
+    throw new Error(typeof detail === "string" ? detail : "Map request failed");
+  }
+}
+
+export const uploadMap = (file: File) =>
+  mapRequest("/api/office-map", { method: "PUT", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
+export const deleteMap = () => mapRequest("/api/office-map", { method: "DELETE" });
+export const setSetupLocation = (setupId: number, pos: { x: number; y: number } | null) =>
+  mapRequest(`/api/setups/${setupId}/location`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(pos ?? { x: null, y: null }),
+  });
+
+export async function fetchNetworkSvg(setupId: number): Promise<string> {
+  const res = await fetch(`/api/setups/${setupId}/network-diagram`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed to load network diagram (${res.status})`);
+  return (await res.json()).svg as string;
+}

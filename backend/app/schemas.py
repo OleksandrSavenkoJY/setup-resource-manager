@@ -1,6 +1,48 @@
+import ipaddress
+import re
 from pydantic import model_validator, BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
+
+
+_MAC_RE = re.compile(r"^[0-9A-Fa-f]{12}$")
+
+
+class NetInterface(BaseModel):
+    name: str = Field("", max_length=100)
+    type: str = Field("", max_length=50)
+    ip: str = Field("", max_length=64)
+    mac: str = Field("", max_length=32)
+
+    @field_validator("name", "type")
+    @classmethod
+    def _strip(cls, v):
+        return v.strip()
+
+    @field_validator("ip")
+    @classmethod
+    def _valid_ip(cls, v):
+        v = v.strip()
+        if v:
+            try:
+                ipaddress.ip_interface(v)
+            except ValueError:
+                raise ValueError(f"Invalid IP address '{v}'")
+        return v
+
+    @field_validator("mac")
+    @classmethod
+    def _valid_mac(cls, v):
+        raw = re.sub(r"[\s:.\-]", "", v)
+        if not raw:
+            return ""
+        if not _MAC_RE.match(raw):
+            raise ValueError(f"Invalid MAC address '{v}'")
+        raw = raw.upper()
+        return ":".join(raw[i:i + 2] for i in range(0, 12, 2))
+
+    class Config:
+        from_attributes = True
 
 
 class DeviceBase(BaseModel):
@@ -10,6 +52,7 @@ class DeviceBase(BaseModel):
     location: Optional[str] = None
     notes: Optional[str] = None
     power_from: str = Field("", max_length=255)
+    net_interfaces: List[NetInterface] = []
 
 
 class DeviceCreate(DeviceBase):
@@ -63,6 +106,17 @@ def _check_power(devices):
     return devices
 
 
+class LocationUpdate(BaseModel):
+    x: Optional[float] = Field(None, ge=0, le=1)
+    y: Optional[float] = Field(None, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def _both_or_none(self):
+        if (self.x is None) != (self.y is None):
+            raise ValueError("x and y must be set together")
+        return self
+
+
 class SetupCreate(SetupBase):
     devices: List[DeviceCreate] = []
     connections: List[ConnectionCreate] = []
@@ -90,6 +144,8 @@ class SetupUpdate(BaseModel):
 
 class SetupRead(SetupBase):
     id: int
+    map_x: Optional[float] = None
+    map_y: Optional[float] = None
     created_at: datetime
     updated_at: datetime
     devices: List[DeviceRead] = []

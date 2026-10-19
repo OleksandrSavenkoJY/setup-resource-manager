@@ -7,10 +7,22 @@ import { createDeviceType, createInterface, deleteDeviceType, deleteInterface, f
 import { useCurrentUser } from "@/lib/useCurrentUser";
 import { useRouter } from "next/navigation";
 
+type NetEntry = { name: string; type: string; ip: string; mac: string };
+
+const NET_TYPES = ["Ethernet", "Wi-Fi", "Bluetooth", "Cellular", "Other"];
+const IP_RE = /^[0-9a-fA-F:.]+(\/\d{1,3})?$/;
+const MAC_RE = /^([0-9a-fA-F]{2}[:\-. ]?){5}[0-9a-fA-F]{2}$|^[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}$/;
+
+let uidCounter = 0;
+const newUid = () => `d${++uidCounter}`;
+
 type DeviceEntry = {
+  uid: string;
+  net_interfaces: NetEntry[];
   type: string;
   name: string;
   location: string;
+  // OUTLET, "" or the uid of the source device (names can still be empty or change while editing).
   power_from: string;
   notes: string;
 };
@@ -42,10 +54,12 @@ function emptyConnection(): ConnectionEntry {
 
 function emptyDevice(): DeviceEntry {
   return {
+    uid: newUid(),
     type: DEFAULT_TYPES[0],
     name: "",
     location: DESKTOP,
     power_from: "",
+    net_interfaces: [],
     notes: "",
   };
 }
@@ -64,17 +78,42 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
   const [iconList, setIconList] = useState<IconDef[]>([]);
   const [interfaceList, setInterfaceList] = useState<{ id: number; name: string }[]>([]);
   const me = useCurrentUser();
-  const [devices, setDevices] = useState<DeviceEntry[]>(
-    initialData?.devices?.length
-      ? initialData.devices.map((d: any) => ({
+  const [devices, setDevices] = useState<DeviceEntry[]>(() => {
+    if (!initialData?.devices?.length) return [emptyDevice()];
+    const entries: DeviceEntry[] = initialData.devices.map((d: any) => ({
+          uid: newUid(),
           type: d.type ?? DEFAULT_TYPES[0],
           name: d.name ?? "",
           location: d.location ?? DESKTOP,
           power_from: d.power_from ?? "",
+          net_interfaces: (d.net_interfaces ?? []).map((n: any) => ({ name: n.name ?? "", type: n.type ?? "", ip: n.ip ?? "", mac: n.mac ?? "" })),
           notes: d.notes ?? "",
-        }))
-      : [emptyDevice()]
-  );
+        }));
+    const byName = new Map(entries.map((e) => [e.name, e.uid]));
+    return entries.map((e) => ({ ...e, power_from: e.power_from === OUTLET ? OUTLET : byName.get(e.power_from) ?? "" }));
+  });
+  // Devices added with "Add device" stay highlighted until the user edits them.
+  const [freshUids, setFreshUids] = useState<Set<string>>(new Set());
+  const [scrollToUid, setScrollToUid] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!scrollToUid) return;
+    const card = document.getElementById(`device-card-${scrollToUid}`);
+    card?.scrollIntoView({ behavior: "smooth", block: "center" });
+    card?.querySelector("select")?.focus({ preventScroll: true });
+    setScrollToUid(null);
+  }, [scrollToUid]);
+
+  const markEdited = (uid: string | undefined) => {
+    if (!uid) return;
+    setFreshUids((cur) => {
+      if (!cur.has(uid)) return cur;
+      const next = new Set(cur);
+      next.delete(uid);
+      return next;
+    });
+  };
+
   const [connections, setConnections] = useState<ConnectionEntry[]>(
     (initialData?.connections ?? []).map((c: any) => ({
       from_device: c.from_device ?? "",
@@ -198,6 +237,7 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
   const canSubmit =
     isValid.name &&
     isValid.description &&
+    devices.every((d) => d.net_interfaces.every((n) => (!n.ip.trim() || IP_RE.test(n.ip.trim())) && (!n.mac.trim() || MAC_RE.test(n.mac.trim())))) &&
     isValid.outletsUsed &&
     isValid.devices &&
     isValid.deviceNames &&
@@ -217,11 +257,14 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
       chamber,
       outlets_used: outletsUsed,
       chamber_count: chamber ? chamberCount : 0,
-      devices: devices.map((d) => ({
+      devices: devices.map(({ uid: _uid, ...d }) => ({
         ...d,
         quantity: 1,
         location: locationOptions.includes(d.location) ? d.location : DESKTOP,
-        power_from: d.power_from === OUTLET || devices.some((o) => o !== d && o.name === d.power_from) ? d.power_from : "",
+        net_interfaces: d.net_interfaces
+          .filter((n) => n.name.trim() || n.ip.trim() || n.mac.trim())
+          .map((n) => ({ name: n.name.trim(), type: n.type, ip: n.ip.trim(), mac: n.mac.trim() })),
+        power_from: d.power_from === OUTLET ? OUTLET : devices.find((o) => o.uid === d.power_from && o.name.trim())?.name ?? "",
       })),
       connections: connections.map((c) => ({
         from_device: c.from_device,
@@ -252,15 +295,8 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
   }
 
   function updateDevice(listSetter: React.Dispatch<React.SetStateAction<DeviceEntry[]>>, index: number, key: keyof DeviceEntry, value: string | number) {
-    listSetter((current) => {
-      const oldName = current[index]?.name;
-      return current.map((device, i) => {
-        if (i === index) return { ...device, [key]: value };
-        // Keep power sources pointing at a renamed device.
-        if (key === "name" && oldName && device.power_from === oldName) return { ...device, power_from: String(value) };
-        return device;
-      });
-    });
+    markEdited(devices[index]?.uid);
+    listSetter((current) => current.map((device, i) => (i === index ? { ...device, [key]: value } : device)));
     if (key === "name") {
       const oldName = devices[index]?.name;
       if (oldName) {
@@ -274,12 +310,38 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
   }
 
   function addDevice(listSetter: React.Dispatch<React.SetStateAction<DeviceEntry[]>>) {
-    listSetter((current) => [...current, emptyDevice()]);
+    const device = emptyDevice();
+    listSetter((current) => [...current, device]);
+    setFreshUids((cur) => new Set(cur).add(device.uid));
+    setScrollToUid(device.uid);
+  }
+
+  function updateNet(deviceIndex: number, netIndex: number, key: keyof NetEntry, value: string) {
+    markEdited(devices[deviceIndex]?.uid);
+    setDevices((cur) => cur.map((d, i) => (i !== deviceIndex ? d : {
+      ...d,
+      net_interfaces: d.net_interfaces.map((n, j) => (j === netIndex ? { ...n, [key]: value } : n)),
+    })));
+  }
+
+  function addNet(deviceIndex: number) {
+    markEdited(devices[deviceIndex]?.uid);
+    setDevices((cur) => cur.map((d, i) => (i !== deviceIndex ? d : {
+      ...d,
+      net_interfaces: [...d.net_interfaces, { name: "", type: "Ethernet", ip: "", mac: "" }],
+    })));
+  }
+
+  function removeNet(deviceIndex: number, netIndex: number) {
+    setDevices((cur) => cur.map((d, i) => (i !== deviceIndex ? d : {
+      ...d,
+      net_interfaces: d.net_interfaces.filter((_, j) => j !== netIndex),
+    })));
   }
 
   function removeDevice(listSetter: React.Dispatch<React.SetStateAction<DeviceEntry[]>>, index: number) {
-    const removed = devices[index]?.name;
-    listSetter((current) => current.filter((_, i) => i !== index).map((d) => (removed && d.power_from === removed ? { ...d, power_from: "" } : d)));
+    const removed = devices[index]?.uid;
+    listSetter((current) => current.filter((_, i) => i !== index).map((d) => (d.power_from === removed ? { ...d, power_from: "" } : d)));
   }
 
   function updateConnection(index: number, key: keyof ConnectionEntry, value: string) {
@@ -385,7 +447,14 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
 
         <div style={{ marginTop: 12 }}>
           {devices.map((device, index) => (
-            <div key={index} className="card" style={{ background: "var(--surface-alt)" }}>
+            <div
+              key={device.uid}
+              id={`device-card-${device.uid}`}
+              className="card"
+              style={freshUids.has(device.uid)
+                ? { background: "rgba(37, 99, 235, 0.18)", border: "2px solid #2563eb" }
+                : { background: "var(--surface-alt)" }}
+            >
               <label>
                 Device type
                 <select
@@ -422,11 +491,32 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
                 >
                   <option value="">Not specified</option>
                   <option value={OUTLET}>Wall outlet</option>
-                  {devices.map((o, oi) => (oi !== index && o.name.trim() ? (
-                    <option key={oi} value={o.name}>{o.name}{o.type ? ` (${o.type})` : ""}</option>
+                  {devices.map((o, oi) => (oi !== index ? (
+                    <option key={o.uid} value={o.uid}>{o.name.trim() || `Device ${oi + 1} (unnamed)`}{o.type ? ` (${o.type})` : ""}</option>
                   ) : null))}
                 </select>
               </label>
+              <div>
+                <b>Network interfaces</b>
+                {device.net_interfaces.map((n, ni) => {
+                  const ipBad = n.ip.trim() !== "" && !IP_RE.test(n.ip.trim());
+                  const macBad = n.mac.trim() !== "" && !MAC_RE.test(n.mac.trim());
+                  return (
+                    <div key={ni} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+                      <input style={{ width: 110 }} placeholder="Name (eth0)" value={n.name} onChange={(e) => updateNet(index, ni, "name", e.target.value)} />
+                      <select style={{ width: 120 }} value={n.type} onChange={(e) => updateNet(index, ni, "type", e.target.value)}>
+                        {(NET_TYPES.includes(n.type) || !n.type ? NET_TYPES : [...NET_TYPES, n.type]).map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                      <input style={{ width: 160 }} placeholder="IP (192.168.1.10)" value={n.ip} className={ipBad ? "field-error" : ""} onChange={(e) => updateNet(index, ni, "ip", e.target.value)} />
+                      <input style={{ width: 170 }} placeholder="MAC (AA:BB:CC:DD:EE:FF)" value={n.mac} className={macBad ? "field-error" : ""} onChange={(e) => updateNet(index, ni, "mac", e.target.value)} />
+                      <button type="button" className="secondary" onClick={() => removeNet(index, ni)}>Remove</button>
+                    </div>
+                  );
+                })}
+                <div style={{ marginTop: 6 }}>
+                  <button type="button" className="secondary" onClick={() => addNet(index)}>+ Add network interface</button>
+                </div>
+              </div>
               <label>
                 Notes
                 <textarea value={device.notes} onChange={(e) => updateDevice(setDevices, index, "notes", e.target.value)} />
@@ -435,6 +525,7 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
             </div>
           ))}
         </div>
+        <button type="button" onClick={() => addDevice(setDevices)}>+ Add device</button>
       </div>
 
       <div className="card" style={{ marginTop: 12 }}>
@@ -497,6 +588,14 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
                     </div>
                   );
                 })}
+                <label>
+                  Cable (optional)
+                  <input
+                    value={c.cable_type}
+                    placeholder="e.g. USB-C, Cat6, UART 3.3V"
+                    onChange={(e) => updateConnection(index, "cable_type", e.target.value)}
+                  />
+                </label>
                 {c.from_device && c.from_device === c.to_device ? (
                   <p style={{ color: "#dc2626", marginTop: 0 }}>From and To must be different devices.</p>
                 ) : null}

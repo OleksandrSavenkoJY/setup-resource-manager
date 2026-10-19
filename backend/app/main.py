@@ -9,7 +9,8 @@ from .database import Base, SessionLocal, engine, get_db
 from . import models, schemas, crud, auth
 from .auth import get_current_user, require_admin
 from .prompt import generate_prompt
-from .diagram import ICON_LABELS, build_drawio, build_svg, icon_catalog, icon_kind
+from .netdiagram import build_network_svg
+from .diagram import ICON_LABELS, LAYOUT_VERSION, build_drawio, build_svg, icon_catalog, icon_kind
 from . import export as exporter
 
 Base.metadata.create_all(bind=engine)
@@ -24,10 +25,14 @@ with engine.begin() as _conn:
 with engine.begin() as _conn:
     if "icon" not in {c["name"] for c in inspect(_conn).get_columns("device_types")}:
         _conn.execute(text("ALTER TABLE device_types ADD COLUMN icon VARCHAR(30) NOT NULL DEFAULT ''"))
+    _setup_cols = {c["name"] for c in inspect(_conn).get_columns("setups")}
+    for _col in ("map_x", "map_y"):
+        if _col not in _setup_cols:
+            _conn.execute(text(f"ALTER TABLE setups ADD COLUMN {_col} DOUBLE PRECISION"))
     if "power_from" not in {c["name"] for c in inspect(_conn).get_columns("devices")}:
         _conn.execute(text("ALTER TABLE devices ADD COLUMN power_from VARCHAR(255) NOT NULL DEFAULT ''"))
 
-DEFAULT_DEVICE_TYPES = ["PC", "Laptop", "Monitor", "UPS", "Board", "Board 2", "Chip", "Chip 2", "Chip 3"]
+DEFAULT_DEVICE_TYPES = ["PC", "Laptop", "Monitor", "UPS", "Board", "Board 2", "Chip", "Chip 2", "Chip 3", "Antenna", "Attenuator"]
 
 DEFAULT_INTERFACES = ["Ethernet", "USB", "HDMI", "DisplayPort", "Power", "Serial", "CAN", "GPIO", "Wi-Fi", "Other"]
 
@@ -128,7 +133,11 @@ def clone_setup(setup_id: int, db: Session = Depends(get_db)):
         devices=[
             models.Device(
                 type=d.type, name=d.name, location=d.location, notes=d.notes,
-                power_from=d.power_from
+                power_from=d.power_from,
+                net_interfaces=[
+                    models.NetInterface(name=n.name, type=n.type, ip=n.ip, mac=n.mac)
+                    for n in d.net_interfaces
+                ],
             )
             for d in src.devices
         ],
@@ -226,6 +235,71 @@ def delete_photo(setup_id: int, db: Session = Depends(get_db)):
     return Response(status_code=204)
 
 
+async def _read_upload(request: Request, limit: int, label: str) -> bytes:
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > limit:
+        raise HTTPException(status_code=413, detail=f"{label} is larger than 10 MB")
+    raw = b""
+    async for chunk in request.stream():
+        raw += chunk
+        if len(raw) > limit:
+            raise HTTPException(status_code=413, detail=f"{label} is larger than 10 MB")
+    if not raw:
+        raise HTTPException(status_code=422, detail="Empty file")
+    return raw
+
+
+@app.get("/setups/{setup_id}/network-diagram", dependencies=[Depends(get_current_user)])
+def network_diagram(setup_id: int, db: Session = Depends(get_db)):
+    setup = _load_setups(db, setup_id)
+    return {"svg": build_network_svg(setup)}
+
+
+@app.get("/office-map", dependencies=[Depends(get_current_user)])
+def get_office_map(db: Session = Depends(get_db)):
+    office = db.get(models.OfficeMap, 1)
+    if not office:
+        raise HTTPException(status_code=404, detail="No office map")
+    return Response(
+        content=office.data,
+        media_type=office.content_type,
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-cache"},
+    )
+
+
+@app.put("/office-map", dependencies=[Depends(require_admin)])
+async def put_office_map(request: Request, db: Session = Depends(get_db)):
+    raw = await _read_upload(request, MAX_PHOTO_BYTES, "Map")
+    data, content_type = _normalize_photo(raw)
+    office = db.get(models.OfficeMap, 1) or models.OfficeMap(id=1)
+    office.data, office.content_type = data, content_type
+    db.add(office)
+    db.commit()
+    return {"ok": True}
+
+
+@app.delete("/office-map", status_code=204, dependencies=[Depends(require_admin)])
+def delete_office_map(db: Session = Depends(get_db)):
+    office = db.get(models.OfficeMap, 1)
+    if office:
+        db.delete(office)
+    # Markers are meaningless without their map.
+    db.query(models.Setup).update({models.Setup.map_x: None, models.Setup.map_y: None})
+    db.commit()
+    return Response(status_code=204)
+
+
+@app.put("/setups/{setup_id}/location", response_model=schemas.SetupRead, dependencies=[Depends(require_admin)])
+def put_location(setup_id: int, loc: schemas.LocationUpdate, db: Session = Depends(get_db)):
+    setup = db.get(models.Setup, setup_id)
+    if not setup:
+        raise HTTPException(status_code=404, detail="Setup not found")
+    setup.map_x, setup.map_y = loc.x, loc.y
+    db.commit()
+    db.refresh(setup)
+    return setup
+
+
 def _diagram_payload(diagram: models.SetupDiagram, user: models.User):
     payload = {"svg": diagram.svg, "generated_at": diagram.generated_at.isoformat()}
     if user.role == "admin":
@@ -233,24 +307,7 @@ def _diagram_payload(diagram: models.SetupDiagram, user: models.User):
     return payload
 
 
-@app.get("/setups/{setup_id}/diagram")
-def get_diagram(
-    setup_id: int,
-    db: Session = Depends(get_db),
-    user: models.User = Depends(get_current_user),
-):
-    diagram = db.get(models.SetupDiagram, setup_id)
-    if not diagram:
-        raise HTTPException(status_code=404, detail="Diagram not generated yet")
-    return _diagram_payload(diagram, user)
-
-
-@app.post("/setups/{setup_id}/diagram")
-def generate_diagram(
-    setup_id: int,
-    db: Session = Depends(get_db),
-    user: models.User = Depends(require_admin),
-):
+def _regenerate(db: Session, setup_id: int):
     setup = (
         db.query(models.Setup)
         .options(selectinload(models.Setup.devices), selectinload(models.Setup.connections))
@@ -266,7 +323,30 @@ def generate_diagram(
     db.add(diagram)
     db.commit()
     db.refresh(diagram)
+    return diagram
+
+
+@app.get("/setups/{setup_id}/diagram")
+def get_diagram(
+    setup_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    diagram = db.get(models.SetupDiagram, setup_id)
+    if not diagram:
+        raise HTTPException(status_code=404, detail="Diagram not generated yet")
+    if f'data-layout="{LAYOUT_VERSION}"' not in diagram.svg[:600]:
+        diagram = _regenerate(db, setup_id)  # stored by an older layout version
     return _diagram_payload(diagram, user)
+
+
+@app.post("/setups/{setup_id}/diagram")
+def generate_diagram(
+    setup_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_admin),
+):
+    return _diagram_payload(_regenerate(db, setup_id), user)
 
 
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

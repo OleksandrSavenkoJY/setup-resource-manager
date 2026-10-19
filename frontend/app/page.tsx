@@ -33,6 +33,9 @@ export default function HomePage() {
             <button>Create new setup</button>
           </Link>
         )}
+        <Link href="/map">
+          <button className="secondary">Office map</button>
+        </Link>
         <ExportButton />
       </div>
 

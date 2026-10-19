@@ -57,6 +57,8 @@ Diagram style rules (follow them strictly):
    labelled "Power". A device powered from the wall outlet gets a line from one shared "Wall outlet" socket icon;
    a device powered from another device (for example a UPS) gets a line from that device.
    Keep power lines visually distinct from data connections and do not let them affect which device is central.
-9. Use only the information above. Do not invent devices, connections or interfaces.
-10. Check the result before answering: no overlaps, no crossings, every connection present and labelled.
+9. Attenuators sit in the middle of the cable they interrupt, in the gap between the two chambers (never inside a chamber),
+   on the straight line between the devices they connect. Caption them "between Ch1 and Ch2".
+10. Use only the information above. Do not invent devices, connections or interfaces.
+11. Check the result before answering: no overlaps, no crossings, every connection present and labelled.
 """

@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, LargeBinary, String, Text, func
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, func
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -12,6 +12,8 @@ class Setup(Base):
     chamber = Column(Boolean, default=False, nullable=False)
     outlets_used = Column(Integer, default=0, nullable=False)
     chamber_count = Column(Integer, default=0, nullable=False, server_default="0")
+    map_x = Column(Float, nullable=True)
+    map_y = Column(Float, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -33,6 +35,9 @@ class Device(Base):
     power_from = Column(String(255), nullable=False, default="", server_default="")
 
     setup = relationship("Setup", back_populates="devices")
+    net_interfaces = relationship(
+        "NetInterface", cascade="all, delete-orphan", order_by="NetInterface.id"
+    )
 
 
 class Connection(Base):
@@ -79,6 +84,26 @@ class SetupDiagram(Base):
     svg = Column(Text, nullable=False)
     drawio_xml = Column(Text, nullable=False)
     generated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class NetInterface(Base):
+    __tablename__ = "net_interfaces"
+
+    id = Column(Integer, primary_key=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(100), nullable=False, default="")
+    type = Column(String(50), nullable=False, default="", server_default="")
+    ip = Column(String(64), nullable=False, default="", server_default="")
+    mac = Column(String(17), nullable=False, default="", server_default="")
+
+
+class OfficeMap(Base):
+    __tablename__ = "office_map"
+
+    id = Column(Integer, primary_key=True)
+    content_type = Column(String(50), nullable=False)
+    data = Column(LargeBinary, nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
 class SetupPhoto(Base):
