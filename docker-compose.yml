@@ -41,5 +41,17 @@ services:
     ports:
       - "3001:3000"
 
+  mcp:
+    build:
+      context: ./mcp
+    container_name: setup-resource-mcp
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      - backend
+    ports:
+      - "${MCP_BIND:-127.0.0.1}:8765:8765"
+
 volumes:
   postgres_data:

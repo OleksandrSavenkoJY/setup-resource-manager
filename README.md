@@ -67,6 +67,21 @@ Stored schemas are regenerated automatically when the layout version changes.
 - `COOKIE_SECURE=true` — set when served over HTTPS.
 - `CORS_ORIGINS` — comma-separated allowed origins.
 
+### MCP server
+The `mcp` service exposes setups, devices and access points to MCP clients (Copilot CLI, VS Code, Claude, ...) at `http://<host>:8765/mcp` (streamable HTTP).
+It has no database access: it logs in to the backend with the credentials the client sends (HTTP Basic), so roles apply as in the web UI.
+`guest` can only read and never sees access point credentials; `admin` can also create, update and delete.
+
+Tools: `list_setups`, `get_setup`, `search_devices`, `list_access_points`, `get_setup_prompt` (admin), `create_setup`, `update_setup`, `delete_setup`, `create_access_point`, `update_access_point`, `delete_access_point`.
+
+Client config example (`mcp.json`):
+```json
+{"mcpServers": {"setups": {"type": "http", "url": "http://localhost:8765/mcp",
+  "headers": {"Authorization": "Basic <base64 of user:password>"}}}}
+```
+Generate the value with `printf 'admin:PASSWORD' | base64`. The port is bound to `127.0.0.1` by default; from another machine use an SSH tunnel
+(`ssh -L 8765:127.0.0.1:8765 user@server`) or put HTTPS in front and set `MCP_BIND`.
+
 ### Reset everything
 ```bash
 docker compose down -v    # also deletes the database volume
