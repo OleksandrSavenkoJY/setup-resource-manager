@@ -21,6 +21,7 @@ def create_setup(db: Session, setup_in: schemas.SetupCreate):
         description=setup_in.description,
         chamber=setup_in.chamber,
         outlets_used=setup_in.outlets_used,
+        criticality=setup_in.criticality,
         chamber_count=setup_in.chamber_count if setup_in.chamber else 0,
     )
     db.add(setup)

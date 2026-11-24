@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import ExportButton from "@/components/ExportButton";
+import CriticalityBadge from "@/components/Criticality";
 import ZoomableImage from "@/components/ZoomableImage";
 import OfficeMapView from "@/components/OfficeMapView";
+import Linkify from "@/components/Linkify";
 import { cloneSetup, deletePhoto, deleteSetup, fetchMapUrl, fetchNetworkSvg, fetchPhotoUrl, generateDiagram, setSetupLocation, uploadPhoto, type Diagram } from "@/lib/api";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 
@@ -165,6 +167,25 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
         <p><b>Name:</b> {setup.name}</p>
         <p><b>Description:</b> {setup.description || "-"}</p>
         {setup.chamber ? <p><b>Chambers:</b> {setup.chamber_count ?? 0}</p> : null}
+        <p><b>Criticality:</b> <CriticalityBadge level={setup.criticality} /></p>
+        {(() => {
+          const withPfa = (setup.devices ?? []).filter((d: any) => d.pfa_ip);
+          const main = withPfa.find((d: any) => /mgmt/i.test(d.notes ?? "")) ?? withPfa[0];
+          return main ? (
+            <p>
+              <b>PFA:</b>{" "}
+              <a href={`http://${main.pfa_ip}:8080`} target="_blank" rel="noreferrer">http://{main.pfa_ip}:8080</a> ({main.name})
+            </p>
+          ) : null;
+        })()}
+        <p>
+          <b>Access points:</b>{" "}
+          {(setup.access_points ?? []).length
+            ? setup.access_points.map((a: any, i: number) => (
+                <span key={a.id}>{i ? ", " : ""}<Link href={`/access-points?highlight=${a.id}`}>{a.name}{a.ip ? ` (${a.ip})` : ""}</Link></span>
+              ))
+            : "-"}
+        </p>
         <p><b>Outlets used:</b> {setup.outlets_used}</p>
       </div>
 
@@ -174,7 +195,7 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
           <div className="table-scroll">
             <table className="data-table">
               <thead>
-                <tr><th>Type</th><th>Name</th><th>Location</th><th>Powered from</th><th>Notes</th></tr>
+                <tr><th>Type</th><th>Name</th><th>Location</th><th>Powered from</th><th>PFA</th><th>Notes</th></tr>
               </thead>
               <tbody>
                 {setup.devices.map((d: any) => (
@@ -183,7 +204,8 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
                     <td>{d.name}</td>
                     <td>{d.location || "-"}</td>
                     <td>{d.power_from === "__outlet__" ? "Wall outlet" : d.power_from || "-"}</td>
-                    <td>{d.notes || "-"}</td>
+                    <td>{d.pfa_ip ? <a href={`http://${d.pfa_ip}:8080`} target="_blank" rel="noreferrer">{d.pfa_ip}</a> : "-"}</td>
+                    <td><Linkify text={d.notes} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -224,7 +246,7 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
           <div className="table-scroll">
             <table className="data-table">
               <thead>
-                <tr><th>From device</th><th>From interface</th><th>To device</th><th>To interface</th><th>Cable</th><th>Notes</th></tr>
+                <tr><th>From device</th><th>From interface</th><th>To device</th><th>To interface</th><th>Cable</th><th>Power</th><th>Radio</th><th>Notes</th></tr>
               </thead>
               <tbody>
                 {setup.connections.map((c: any) => (
@@ -234,7 +256,9 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
                     <td>{c.to_device}</td>
                     <td>{c.to_port || "-"}</td>
                     <td>{c.cable_type || "-"}</td>
-                    <td>{c.notes || "-"}</td>
+                    <td>{c.powers === "from" ? `${c.from_device} → ${c.to_device}` : c.powers === "to" ? `${c.to_device} → ${c.from_device}` : "-"}</td>
+                    <td>{{ ota: "Over the air", conducted: "Conducted", hybrid: "Hybrid" }[c.radio_mode as string] ?? "-"}</td>
+                    <td><Linkify text={c.notes} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -308,7 +332,7 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
               {isGenerating ? "Generating..." : diagram ? "Regenerate schema" : "Generate schema"}
             </button>
             {diagram?.drawio_xml ? (
-              <button type="button" className="secondary" onClick={handleDownload}>
+              <button type="button" className="secondary" onClick={() => handleDownload()}>
                 Download .drawio
               </button>
             ) : null}

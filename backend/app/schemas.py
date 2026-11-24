@@ -52,6 +52,7 @@ class DeviceBase(BaseModel):
     location: Optional[str] = None
     notes: Optional[str] = None
     power_from: str = Field("", max_length=255)
+    pfa_ip: str = Field("", max_length=64)
     net_interfaces: List[NetInterface] = []
 
 
@@ -73,6 +74,24 @@ class ConnectionBase(BaseModel):
     to_port: Optional[str] = None
     cable_type: Optional[str] = None
     notes: Optional[str] = None
+    powers: str = ""
+    radio_mode: str = ""
+
+    @field_validator("radio_mode", mode="before")
+    @classmethod
+    def _radio_mode(cls, v):
+        v = v or ""
+        if v not in ("", "ota", "conducted", "hybrid"):
+            raise ValueError("radio_mode must be empty, 'ota', 'conducted' or 'hybrid'")
+        return v
+
+    @field_validator("powers", mode="before")
+    @classmethod
+    def _powers(cls, v):
+        v = v or ""
+        if v not in ("", "from", "to"):
+            raise ValueError("powers must be empty, 'from' or 'to'")
+        return v
 
 
 class ConnectionCreate(ConnectionBase):
@@ -92,6 +111,7 @@ class SetupBase(BaseModel):
     chamber: bool = False
     outlets_used: int = 0
     chamber_count: int = Field(0, ge=0, le=50)
+    criticality: int = Field(3, ge=1, le=5)
 
 
 POWER_OUTLET = "__outlet__"
@@ -133,6 +153,7 @@ class SetupUpdate(BaseModel):
     chamber: Optional[bool] = None
     outlets_used: Optional[int] = None
     chamber_count: Optional[int] = Field(None, ge=0, le=50)
+    criticality: Optional[int] = Field(None, ge=1, le=5)
     devices: Optional[List[DeviceCreate]] = None
     connections: Optional[List[ConnectionCreate]] = None
 
@@ -140,6 +161,15 @@ class SetupUpdate(BaseModel):
     @classmethod
     def _power_sources_exist(cls, v):
         return _check_power(v) if v is not None else v
+
+
+class AccessPointBrief(BaseModel):
+    id: int
+    name: str
+    model: str = ""
+    ip: str = ""
+
+    model_config = {"from_attributes": True}
 
 
 class SetupRead(SetupBase):
@@ -150,6 +180,7 @@ class SetupRead(SetupBase):
     updated_at: datetime
     devices: List[DeviceRead] = []
     connections: List[ConnectionRead] = []
+    access_points: List[AccessPointBrief] = []
 
     @model_validator(mode="after")
     def _auto_outlets(self):
@@ -166,7 +197,8 @@ class DeviceTypeCreate(BaseModel):
 
 
 class DeviceTypeUpdate(BaseModel):
-    icon: str = Field(max_length=30)
+    icon: Optional[str] = Field(None, max_length=30)
+    name: Optional[str] = Field(None, max_length=100)
 
 
 class DeviceTypeRead(BaseModel):

@@ -104,6 +104,14 @@ export async function setupAdmin(password: string): Promise<CurrentUser> {
   });
 }
 
+export async function changePassword(current_password: string, new_password: string) {
+  return request("/auth/change-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_password, new_password }),
+  });
+}
+
 export async function logout() {
   return request("/auth/logout", {
     method: "POST",
@@ -149,6 +157,12 @@ export const setDeviceTypeIcon = (id: number, icon: string) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ icon }),
   });
+export const renameDeviceType = (id: number, name: string) =>
+  request(`/device-types/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
 export const deleteDeviceType = (id: number) => deleteOption("device-types", id);
 export const deleteInterface = (id: number) => deleteOption("interfaces", id);
 export const fetchInterfaces = () => request("/interfaces");
@@ -186,6 +200,61 @@ async function photoRequest(setupId: number, init: RequestInit) {
 export const uploadPhoto = (setupId: number, file: File) =>
   photoRequest(setupId, { method: "PUT", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
 export const deletePhoto = (setupId: number) => photoRequest(setupId, { method: "DELETE" });
+
+export type AccessPoint = {
+  id: number;
+  name: string;
+  model: string;
+  wifi_standard: string;
+  ip: string;
+  username: string | null;
+  password: string | null;
+  automation: string;
+  setup_id: number | null;
+  setup_name: string | null;
+  location: string;
+  notes: string | null;
+  has_photo: boolean;
+  updated_at: string | null;
+};
+export type AccessPointInput = Omit<AccessPoint, "id" | "setup_name" | "has_photo" | "updated_at" | "username" | "password"> & { username: string; password: string };
+
+export const fetchAccessPoints = (): Promise<AccessPoint[]> => request("/access-points");
+export const createAccessPoint = (b: AccessPointInput): Promise<AccessPoint> =>
+  request("/access-points", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+export const updateAccessPoint = (id: number, b: AccessPointInput): Promise<AccessPoint> =>
+  request(`/access-points/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+export async function deleteAccessPoint(id: number) {
+  const res = await fetch(`/api/access-points/${id}`, { method: "DELETE", cache: "no-store" });
+  if (!res.ok) throw new Error(`Delete failed (${res.status})`);
+}
+export const setSetupAccessPoints = (setupId: number, ids: number[]) =>
+  request(`/setups/${setupId}/access-points`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) });
+export async function exportAccessPoints(passwords: boolean) {
+  const res = await fetch(`/api/access-points-export?passwords=${passwords}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Export failed (${res.status})`);
+  const match = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") || "");
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = match?.[1] || "access-points.xlsx";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+export const importAccessPoints = (file: File): Promise<{ created: number; updated: number }> =>
+  request("/access-points-import", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
+
+async function apPhotoRequest(id: number, init: RequestInit) {
+  const res = await fetch(`/api/access-points/${id}/photo`, { ...init, cache: "no-store" });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail ?? detail; } catch {}
+    throw new Error(typeof detail === "string" ? detail : "Photo request failed");
+  }
+}
+export const uploadAccessPointPhoto = (id: number, file: File) =>
+  apPhotoRequest(id, { method: "PUT", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
+export const deleteAccessPointPhoto = (id: number) => apPhotoRequest(id, { method: "DELETE" });
 
 export async function fetchMapUrl(): Promise<string | null> {
   const res = await fetch("/api/office-map", { cache: "no-store" });

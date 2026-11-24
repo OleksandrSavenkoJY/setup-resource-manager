@@ -14,9 +14,10 @@ type Props = {
   icons?: IconDef[];
   autoIcon?: (item: Item) => string;
   onIconChange?: (item: Item, icon: string) => Promise<void>;
+  onRename?: (item: Item, name: string) => Promise<void>;
 };
 
-export default function OptionManager({ label, placeholder, items, onAdd, onDelete, icons, autoIcon, onIconChange }: Props) {
+export default function OptionManager({ label, placeholder, items, onAdd, onDelete, icons, autoIcon, onIconChange, onRename }: Props) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [pickFor, setPickFor] = useState<number | null>(null);
@@ -79,6 +80,14 @@ export default function OptionManager({ label, placeholder, items, onAdd, onDele
                           {auto ? "Icon: auto" : `Icon: ${icons.find((i) => i.key === t.icon)?.label ?? t.icon}`}
                         </div>
                       </div>
+                      {onRename ? (
+                        <button type="button" className="secondary" title="Rename" onClick={() => {
+                          const next = window.prompt(`Rename "${t.name}" to:`, t.name)?.trim();
+                          if (next && next !== t.name) onRename(t, next);
+                        }}>
+                          Rename
+                        </button>
+                      ) : null}
                       <button type="button" className="secondary" aria-label={`Delete ${t.name}`} title="Delete" onClick={() => onDelete(t)}>
                         ×
                       </button>

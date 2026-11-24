@@ -4,7 +4,6 @@ import { FormEvent, useEffect, useState } from "react";
 import { fetchAuthStatus, login } from "@/lib/api";
 
 export default function LoginPage() {
-  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -23,22 +22,19 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      await login(username, password);
+      await login("admin", password);
       window.location.href = "/";
     } catch (err) {
-      setError(err instanceof Error ? err.message.replace(/^API \d+: /, "") : "Login failed");
+      setError(err instanceof Error ? err.message.replace(/^API \d+: /, "") : "Wrong password");
       setBusy(false);
     }
   }
 
   return (
     <main>
-      <h1>Sign in</h1>
+      <h1>Admin mode</h1>
+      <p>Enter the admin password to create, edit and delete. Without it you can only view.</p>
       <form className="card" onSubmit={handleSubmit} style={{ maxWidth: 360 }}>
-        <label>
-          Login
-          <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required />
-        </label>
         <label>
           Password
           <input
@@ -46,10 +42,11 @@ export default function LoginPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
+            autoFocus
             required
           />
         </label>
-        <button type="submit" disabled={busy}>{busy ? "Signing in..." : "Sign in"}</button>
+        <button type="submit" disabled={busy}>{busy ? "Checking..." : "Enter admin mode"}</button>
         {error ? <div className="field-error" style={{ padding: 12 }}>{error}</div> : null}
       </form>
     </main>

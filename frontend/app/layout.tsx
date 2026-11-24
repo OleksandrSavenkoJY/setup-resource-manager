@@ -26,8 +26,11 @@ export default function RootLayout({
         <TopNav>
           <HomeButton />
           <ThemeToggle />
+          <AuthBar part="status" />
         </TopNav>
-        <AuthBar />
+        <TopNav right>
+          <AuthBar part="actions" />
+        </TopNav>
         {children}
       </body>
     </html>

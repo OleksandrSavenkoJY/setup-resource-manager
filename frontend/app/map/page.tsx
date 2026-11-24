@@ -109,7 +109,7 @@ export default function OfficeMapPage() {
         <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <select value={placingId ?? ""} onChange={(e) => setPlacingId(e.target.value ? Number(e.target.value) : null)}>
             <option value="">Place a setup on the map...</option>
-            {setups.map((s) => (
+            {[...setups].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })).map((s) => (
               <option key={s.id} value={s.id}>{s.name}{s.map_x != null ? " (placed)" : ""}</option>
             ))}
           </select>

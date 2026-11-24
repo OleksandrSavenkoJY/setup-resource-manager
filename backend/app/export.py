@@ -58,8 +58,13 @@ def _device_row(s, d):
     return [s.id, s.name, d.type, d.name, d.location, _power_label(d), d.notes]
 
 
+def _conn_power(c):
+    src = {"from": (c.from_device, c.to_device), "to": (c.to_device, c.from_device)}.get(getattr(c, "powers", "") or "")
+    return f"{src[0]} powers {src[1]}" if src else ""
+
+
 def _conn_row(s, c):
-    return [s.id, s.name, c.from_device, c.from_port, c.to_device, c.to_port, c.cable_type, c.notes]
+    return [s.id, s.name, c.from_device, c.from_port, c.to_device, c.to_port, c.cable_type, _conn_power(c), c.radio_mode or "", c.notes]
 
 
 NET_HEADERS = ["Setup ID", "Setup", "Device", "Interface", "Type", "IP", "MAC"]
@@ -70,7 +75,7 @@ def _net_rows(s):
 
 
 DEVICE_HEADERS = ["Setup ID", "Setup", "Type", "Device", "Location", "Powered from", "Notes"]
-CONN_HEADERS = ["Setup ID", "Setup", "From device", "From interface", "To device", "To interface", "Cable", "Notes"]
+CONN_HEADERS = ["Setup ID", "Setup", "From device", "From interface", "To device", "To interface", "Cable", "Power", "Radio mode", "Notes"]
 
 
 def _add_schema_image(ws, setup, anchor="A1"):
@@ -85,10 +90,10 @@ def build_xlsx(setups, scope: str) -> bytes:
     ws.title = "Setups"
     _write_table(
         ws,
-        ["ID", "Name", "Description", "Chamber", "Chambers", "Outlets used", "Devices", "Connections", "Created", "Updated"],
+        ["ID", "Name", "Description", "Chamber", "Chambers", "Criticality (1-5)", "Outlets used", "Devices", "Connections", "Created", "Updated"],
         [
             [
-                s.id, s.name, s.description, "Yes" if s.chamber else "No", s.chamber_count, s.outlets_used,
+                s.id, s.name, s.description, "Yes" if s.chamber else "No", s.chamber_count, s.criticality, s.outlets_used,
                 len(s.devices), len(s.connections),
                 s.created_at.strftime("%Y-%m-%d %H:%M") if s.created_at else None,
                 s.updated_at.strftime("%Y-%m-%d %H:%M") if s.updated_at else None,
@@ -131,6 +136,7 @@ def build_single_xlsx(setup) -> bytes:
         ("Description", setup.description),
         ("Chamber", "Yes" if setup.chamber else "No"),
         ("Chambers", setup.chamber_count),
+        ("Criticality (1-5)", setup.criticality),
         ("Outlets used", setup.outlets_used),
         ("Created", setup.created_at.strftime("%Y-%m-%d %H:%M") if setup.created_at else None),
         ("Updated", setup.updated_at.strftime("%Y-%m-%d %H:%M") if setup.updated_at else None),

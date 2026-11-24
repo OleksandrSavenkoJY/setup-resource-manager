@@ -15,7 +15,10 @@ def generate_prompt(setup):
     for c in setup.connections:
         connection_lines.append(
             f"- {c.from_device}:{c.from_port or 'N/A'} -> {c.to_device}:{c.to_port or 'N/A'} "
-            f"(cable={c.cable_type or 'N/A'}, notes={c.notes or 'N/A'})"
+            f"(cable={c.cable_type or 'N/A'}, notes={c.notes or 'N/A'}"
+            + (f", this cable also powers: {c.to_device if c.powers == 'from' else c.from_device}" if c.powers else "")
+            + (f", radio mode: {c.radio_mode}" if getattr(c, "radio_mode", "") else "")
+            + ")"
         )
 
     return f"""Create a clean technical diagram for the following setup.
@@ -24,6 +27,7 @@ Setup name: {setup.name}
 Description: {setup.description or 'N/A'}
 Chamber: {"Yes" if setup.chamber else "No"}
 Chambers: {setup.chamber_count}
+Criticality (1 low - 5 critical): {setup.criticality}
 Outlets used: {setup.outlets_used}
 
 Devices:

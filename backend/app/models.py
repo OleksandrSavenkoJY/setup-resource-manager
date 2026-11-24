@@ -12,6 +12,8 @@ class Setup(Base):
     chamber = Column(Boolean, default=False, nullable=False)
     outlets_used = Column(Integer, default=0, nullable=False)
     chamber_count = Column(Integer, default=0, nullable=False, server_default="0")
+    # 1 (low) .. 5 (critical): how much the work depends on this setup running without failures
+    criticality = Column(Integer, default=3, nullable=False, server_default="3")
     map_x = Column(Float, nullable=True)
     map_y = Column(Float, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
@@ -19,6 +21,39 @@ class Setup(Base):
 
     devices = relationship("Device", back_populates="setup", cascade="all, delete-orphan")
     connections = relationship("Connection", back_populates="setup", cascade="all, delete-orphan")
+    access_points = relationship("AccessPoint", back_populates="setup")
+
+
+class AccessPoint(Base):
+    __tablename__ = "access_points"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False, index=True)
+    model = Column(String(255), nullable=False, default="", server_default="")
+    wifi_standard = Column(String(50), nullable=False, default="", server_default="")
+    ip = Column(String(64), nullable=False, default="", server_default="")
+    # Admin-only; stored as plain text because they have to be shown back to the team.
+    username = Column(String(255), nullable=False, default="", server_default="")
+    password = Column(String(255), nullable=False, default="", server_default="")
+    automation = Column(String(20), nullable=False, default="", server_default="")  # "", "yes", "no", "in_progress"
+    status = Column(String(20), nullable=False, default="", server_default="")  # "", "verified", "not_working"
+    setup_id = Column(Integer, ForeignKey("setups.id", ondelete="SET NULL"), nullable=True, index=True)
+    location = Column(String(255), nullable=False, default="", server_default="")  # free text when not in a setup
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    setup = relationship("Setup", back_populates="access_points")
+    photo = relationship("AccessPointPhoto", uselist=False, cascade="all, delete-orphan")
+
+
+class AccessPointPhoto(Base):
+    __tablename__ = "access_point_photos"
+
+    ap_id = Column(Integer, ForeignKey("access_points.id", ondelete="CASCADE"), primary_key=True)
+    content_type = Column(String(50), nullable=False)
+    data = Column(LargeBinary, nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
 class Device(Base):
@@ -33,6 +68,8 @@ class Device(Base):
     notes = Column(Text, nullable=True)
     # "" = unspecified, "__outlet__" = wall outlet, otherwise the name of another device in the setup.
     power_from = Column(String(255), nullable=False, default="", server_default="")
+    # IP of one of the device's interfaces that serves the PFA automation page.
+    pfa_ip = Column(String(64), nullable=False, default="", server_default="")
 
     setup = relationship("Setup", back_populates="devices")
     net_interfaces = relationship(
@@ -51,6 +88,10 @@ class Connection(Base):
     to_port = Column(String(100), nullable=True)
     cable_type = Column(String(100), nullable=True)
     notes = Column(Text, nullable=True)
+    # "" = data only, "from" = From device powers To, "to" = To device powers From
+    powers = Column(String(4), nullable=False, default="", server_default="")
+    # radio links only: "ota" (over the air), "conducted" (cabled antenna ports) or "hybrid" (cable to a remote antenna)
+    radio_mode = Column(String(10), nullable=False, default="", server_default="")
 
     setup = relationship("Setup", back_populates="connections")
 

@@ -6,11 +6,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, inspect, text
 from sqlalchemy.orm import Session, selectinload
 from .database import Base, SessionLocal, engine, get_db
-from . import models, schemas, crud, auth
+from . import models, schemas, crud, auth, aps
 from .auth import get_current_user, require_admin
 from .prompt import generate_prompt
 from .netdiagram import build_network_svg
-from .diagram import ICON_LABELS, LAYOUT_VERSION, build_drawio, build_svg, icon_catalog, icon_kind
+from .diagram import ICON_LABELS, LAYOUT_VERSION, _prepare, build_drawio, build_svg, icon_catalog, icon_kind
 from . import export as exporter
 
 Base.metadata.create_all(bind=engine)
@@ -21,6 +21,8 @@ with engine.begin() as _conn:
     if "chamber_count" not in _cols:
         _conn.execute(text("ALTER TABLE setups ADD COLUMN chamber_count INTEGER NOT NULL DEFAULT 0"))
         _conn.execute(text("UPDATE setups SET chamber_count = 1 WHERE chamber"))
+    if "criticality" not in _cols:
+        _conn.execute(text("ALTER TABLE setups ADD COLUMN criticality INTEGER NOT NULL DEFAULT 3"))
 
 with engine.begin() as _conn:
     if "icon" not in {c["name"] for c in inspect(_conn).get_columns("device_types")}:
@@ -29,12 +31,28 @@ with engine.begin() as _conn:
     for _col in ("map_x", "map_y"):
         if _col not in _setup_cols:
             _conn.execute(text(f"ALTER TABLE setups ADD COLUMN {_col} DOUBLE PRECISION"))
+    if "radio_mode" not in {c["name"] for c in inspect(_conn).get_columns("connections")}:
+        _conn.execute(text("ALTER TABLE connections ADD COLUMN radio_mode VARCHAR(10) NOT NULL DEFAULT ''"))
+    if "powers" not in {c["name"] for c in inspect(_conn).get_columns("connections")}:
+        _conn.execute(text("ALTER TABLE connections ADD COLUMN powers VARCHAR(4) NOT NULL DEFAULT ''"))
     if "power_from" not in {c["name"] for c in inspect(_conn).get_columns("devices")}:
         _conn.execute(text("ALTER TABLE devices ADD COLUMN power_from VARCHAR(255) NOT NULL DEFAULT ''"))
 
-DEFAULT_DEVICE_TYPES = ["PC", "Laptop", "Monitor", "UPS", "Board", "Board 2", "Chip", "Chip 2", "Chip 3", "Antenna", "Attenuator"]
+    if "pfa_ip" not in {c["name"] for c in inspect(_conn).get_columns("devices")}:
+        _conn.execute(text("ALTER TABLE devices ADD COLUMN pfa_ip VARCHAR(64) NOT NULL DEFAULT ''"))
 
-DEFAULT_INTERFACES = ["Ethernet", "USB", "HDMI", "DisplayPort", "Power", "Serial", "CAN", "GPIO", "Wi-Fi", "Other"]
+# The removed "power only" cable option must not break reading setups that used it.
+with engine.begin() as _conn:
+    _conn.execute(text("UPDATE connections SET powers = 'from' WHERE powers = 'pfrom'"))
+    _conn.execute(text("UPDATE connections SET powers = 'to' WHERE powers = 'pto'"))
+
+if engine.dialect.name == "postgresql":
+    with engine.begin() as _conn:
+        _conn.execute(text("ALTER TABLE access_points ALTER COLUMN automation TYPE VARCHAR(20)"))
+
+DEFAULT_DEVICE_TYPES = ["PC", "Laptop", "Monitor", "UPS", "Board", "Board 2", "Chip", "Chip 2", "Chip 3", "Antenna", "Attenuator", "3rd party AP"]
+
+DEFAULT_INTERFACES = ["Ethernet", "USB", "HDMI", "DisplayPort", "Power", "Serial", "CAN", "GPIO", "Wi-Fi", "BLE", "Bluetooth", "Matter", "Thread", "Zigbee", "Other"]
 
 with SessionLocal() as _db:
     auth.ensure_guest(_db)
@@ -43,9 +61,17 @@ with SessionLocal() as _db:
         _used = {p for c in _db.query(models.Connection).all() for p in (c.from_port, c.to_port) if p}
         for _name in DEFAULT_INTERFACES + sorted(_used - set(DEFAULT_INTERFACES)):
             _db.add(models.InterfaceType(name=_name))
+    # Existing databases only know Wi-Fi as a radio interface: add the other common ones once.
+    _names = {i.name.lower() for i in _db.query(models.InterfaceType).all()}
+    if "wi-fi" in _names and not _names & {"ble", "bluetooth", "matter", "thread", "zigbee"}:
+        for _name in ("BLE", "Bluetooth", "Matter", "Thread", "Zigbee"):
+            _db.add(models.InterfaceType(name=_name))
     if not _db.query(models.DeviceType).first():
         for _name in DEFAULT_DEVICE_TYPES:
             _db.add(models.DeviceType(name=_name))
+    _db.flush()
+    if not any(__import__("re").match(r"^3[\s-]*rd[\s-]*party[\s-]*(ap|access point|router)s?$", t.name.strip(), __import__("re").I) for t in _db.query(models.DeviceType).all()):
+        _db.add(models.DeviceType(name="3rd party AP"))
     # Legacy lowercase types from the old hard-coded list map to the new ones.
     for _old, _new in {"computer": "PC", "laptop": "Laptop", "monitor": "Monitor", "ups": "UPS"}.items():
         _db.query(models.Device).filter(models.Device.type == _old).update({"type": _new})
@@ -63,6 +89,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(aps.router)
 
 
 @app.get("/health")
@@ -79,7 +106,7 @@ def create_setup(setup_in: schemas.SetupCreate, db: Session = Depends(get_db)):
 def list_setups(db: Session = Depends(get_db)):
     return (
         db.query(models.Setup)
-        .options(selectinload(models.Setup.devices), selectinload(models.Setup.connections))
+        .options(selectinload(models.Setup.devices), selectinload(models.Setup.connections), selectinload(models.Setup.access_points))
         .order_by(models.Setup.id.desc())
         .all()
     )
@@ -89,7 +116,7 @@ def list_setups(db: Session = Depends(get_db)):
 def get_setup(setup_id: int, db: Session = Depends(get_db)):
     setup = (
         db.query(models.Setup)
-        .options(selectinload(models.Setup.devices), selectinload(models.Setup.connections))
+        .options(selectinload(models.Setup.devices), selectinload(models.Setup.connections), selectinload(models.Setup.access_points))
         .filter(models.Setup.id == setup_id)
         .first()
     )
@@ -130,10 +157,11 @@ def clone_setup(setup_id: int, db: Session = Depends(get_db)):
         chamber=src.chamber,
         outlets_used=src.outlets_used,
         chamber_count=src.chamber_count,
+        criticality=src.criticality,
         devices=[
             models.Device(
                 type=d.type, name=d.name, location=d.location, notes=d.notes,
-                power_from=d.power_from,
+                power_from=d.power_from, pfa_ip=d.pfa_ip,
                 net_interfaces=[
                     models.NetInterface(name=n.name, type=n.type, ip=n.ip, mac=n.mac)
                     for n in d.net_interfaces
@@ -144,7 +172,7 @@ def clone_setup(setup_id: int, db: Session = Depends(get_db)):
         connections=[
             models.Connection(
                 from_device=c.from_device, from_port=c.from_port, to_device=c.to_device,
-                to_port=c.to_port, cable_type=c.cable_type, notes=c.notes,
+                to_port=c.to_port, cable_type=c.cable_type, notes=c.notes, powers=c.powers, radio_mode=c.radio_mode,
             )
             for c in src.connections
         ],
@@ -318,8 +346,9 @@ def _regenerate(db: Session, setup_id: int):
         raise HTTPException(status_code=404, detail="Setup not found")
     _attach_icons(db, setup)
     diagram = db.get(models.SetupDiagram, setup_id) or models.SetupDiagram(setup_id=setup_id)
-    diagram.svg = build_svg(setup)
-    diagram.drawio_xml = build_drawio(setup)
+    prepared = _prepare(setup)
+    diagram.svg = build_svg(setup, prepared)
+    diagram.drawio_xml = build_drawio(setup, prepared)
     db.add(diagram)
     db.commit()
     db.refresh(diagram)
@@ -430,7 +459,18 @@ def update_device_type(type_id: int, body: schemas.DeviceTypeUpdate, db: Session
         raise HTTPException(status_code=404, detail="Device type not found")
     if body.icon and body.icon not in ICON_LABELS:
         raise HTTPException(status_code=422, detail="Unknown icon")
-    item.icon = body.icon
+    if body.name is not None:
+        new = body.name.strip()
+        if not new:
+            raise HTTPException(status_code=422, detail="Name is required")
+        clash = db.query(models.DeviceType).filter(func.lower(models.DeviceType.name) == new.lower(), models.DeviceType.id != type_id).first()
+        if clash:
+            raise HTTPException(status_code=409, detail=f"Type '{clash.name}' already exists")
+        if new != item.name:
+            db.query(models.Device).filter(models.Device.type == item.name).update({"type": new}, synchronize_session=False)
+            item.name = new
+    if body.icon is not None:
+        item.icon = body.icon
     db.commit()
     db.refresh(item)
     return _type_payload(item)

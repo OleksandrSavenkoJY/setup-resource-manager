@@ -3,13 +3,20 @@ from types import SimpleNamespace
 import math
 import re
 import random
+import time
 from collections import deque
 from xml.sax.saxutils import escape, quoteattr
 
-BOX_W, BOX_H = 170, 104
+BOX_W, BOX_H = 170, 112
 ICON_PX = 48
 OUTLET_KEY = "__outlet__"
 POWER_COLOR = "#dc2626"
+RADIO_COLOR = "#2563eb"
+RADIO_RE = re.compile(r"wi-?fi|wlan|\bble\b|bluetooth|matter|thread|zigbee|z-?wave|lora|nfc|cellular|\blte\b|\b5g\b|radio|\brf\b|uwb|802\.15", re.I)
+
+
+def _is_radio(c):
+    return bool(RADIO_RE.search(f"{c.from_port or ''} {c.to_port or ''}"))
 CHAMBER_RE = re.compile(r"^chamber\s*\d+$", re.I)
 GAP_X, GAP_Y = 150, 110
 MARGIN = 56
@@ -49,18 +56,28 @@ ICONS = {
                 '<rect x="28" y="6" width="9" height="26" rx="1.5" fill="#fff"/><path d="M31 11h3M31 15h3M4 34h22"/></g>',
     "outlet": f'<g {S}><rect x="6" y="6" width="28" height="28" rx="6" fill="#fff"/><path d="M15 14v6M25 14v6"/>'
               '<path d="M16 27h8"/></g>',
+    "raspberry": f'<g {S}><rect x="3" y="8" width="34" height="24" rx="2" fill="#fff"/><circle cx="20" cy="16" r="3.5" fill="#be123c"/><circle cx="16.5" cy="21" r="2.5" fill="#be123c"/><circle cx="23.5" cy="21" r="2.5" fill="#be123c"/><rect x="26" y="11" width="8" height="6"/><rect x="26" y="20" width="8" height="8"/><path d="M6 12h4M6 16h4"/></g>',
+    "usb_relay": f'<g {S}><rect x="4" y="11" width="26" height="18" rx="2" fill="#fff"/><rect x="30" y="16" width="7" height="8" rx="1"/><rect x="9" y="15" width="8" height="10" rx="1"/><path d="M20 17l3 3-3 3M24 20h2"/></g>',
+    "ppk2": f'<g {S}><rect x="4" y="9" width="32" height="22" rx="3" fill="#fff"/><path d="M8 24l5-5 4 3 5-8 4 6 6-3" stroke="#0891b2"/><circle cx="9" cy="14" r="1.3"/><circle cx="14" cy="14" r="1.3"/></g>',
+    "power_strip": f'<g {S}><rect x="3" y="13" width="34" height="14" rx="3" fill="#fff"/><path d="M9 17v3M13 17v3M17 17v3M21 17v3M25 17v3M29 17v3"/><path d="M9 23h2M17 23h2M25 23h2"/><path d="M37 20h3"/></g>',
+    "phone": f'<g {S}><rect x="11" y="3" width="18" height="34" rx="3" fill="#fff"/><path d="M17 7h6"/><circle cx="20" cy="32" r="1.5"/></g>',
     "generic": f'<g {S}><path d="M20 4l15 8v16l-15 8-15-8V12z" fill="#fff"/><path d="M5 12l15 8 15-8M20 20v16"/></g>',
 }
 # First match wins; patterns are matched against the lower-cased device type.
 ICON_RULES = [
+    (r"raspberr|\brpi\b|^pi\d|orange pi", "raspberry"),
+    (r"relay", "usb_relay"),
+    (r"ppk|nordic|power profiler", "ppk2"),
+    (r"power strip|powerstrip|extension|surge", "power_strip"),
+    (r"phone|android|iphone|smartphone|mobile", "phone"),
     (r"outlet|socket", "outlet"),
     (r"internet|cloud|^wan$|^mng$", "cloud"),
     (r"attenuat|^att\d|\batt\b", "attenuator"),
     (r"antenn|^ant\d", "antenna"),
     (r"windows|^win\d*$", "pc_windows"),
     (r"linux|ubuntu|debian", "pc_linux"),
-    (r"^ra\d|\bboard\b|\bevk\b|\bfpb\b|devkit|dev kit|pcb", "board"),
-    (r"^rrq|^rtk|^rza|^rx\d|^rl78|^r7|chip|\bsoc\b|\bmcu\b|\bic\b|module|\bcpu\b", "chip"),
+    (r"^ek-|\bevk|-evk|\bboard\b|\bevk\b|\bfpb\b|devkit|dev kit|pcb", "board"),
+    (r"^ra\d|^rrq|^rtk|^rza|^rx\d|^rl78|^r7|chip|\bsoc\b|\bmcu\b|\bic\b|module|\bcpu\b", "chip"),
     (r"laptop|notebook", "laptop"),
     (r"monitor|display|screen|\btv\b", "monitor"),
     (r"\bups\b|battery|power supply|\bpsu\b", "ups"),
@@ -76,7 +93,8 @@ ICON_LABELS = {
     "pc": "Computer", "laptop": "Laptop", "monitor": "Monitor", "ups": "UPS", "chip": "Chip",
     "board": "Board", "switch": "Switch", "router": "Router", "camera": "Camera",
     "printer": "Printer", "attenuator": "Attenuator", "cloud": "Internet", "antenna": "Antenna",
-    "outlet": "Wall outlet", "pc_windows": "PC (Windows)", "pc_linux": "PC (Linux)", "generic": "Generic",
+    "outlet": "Wall outlet", "pc_windows": "PC (Windows)", "pc_linux": "PC (Linux)", "raspberry": "Raspberry Pi", "usb_relay": "USB relay", "ppk2": "Nordic PPK2",
+    "power_strip": "Power strip", "phone": "Mobile phone", "generic": "Generic",
 }
 
 
@@ -139,6 +157,39 @@ def _power_links(setup):
                 cable_type="", notes="", power=True,
             ))
     return links
+
+
+def _all_links(setup):
+    """Data connections (a cable that also powers is oriented source -> powered device) plus power feeds."""
+    data, fed = [], set()
+    for c in setup.connections:
+        mode = getattr(c, "powers", "") or ""
+        if mode == "to":
+            c = SimpleNamespace(from_device=c.to_device, from_port=c.to_port, to_device=c.from_device,
+                                to_port=c.from_port, cable_type=c.cable_type, notes=c.notes, powers="from")
+        if mode:
+            c = SimpleNamespace(from_device=c.from_device, from_port=c.from_port, to_device=c.to_device,
+                                to_port=c.to_port, cable_type=c.cable_type, notes=c.notes, combo=True)
+            fed.add((c.from_device, c.to_device))
+        data.append(c)
+    feeds = []
+    for p in _power_links(setup):
+        if (p.from_device, p.to_device) in fed:
+            continue
+        # A power feed that runs between two devices already joined by a data cable shares that cable's lane.
+        twin = next((i for i, c in enumerate(data)
+                     if not getattr(c, "combo", False) and not _is_radio(c)
+                     and {c.from_device, c.to_device} == {p.from_device, p.to_device}), None)
+        if twin is None:
+            feeds.append(p)
+            continue
+        c = data[twin]
+        data[twin] = SimpleNamespace(
+            from_device=p.from_device, from_port=c.from_port if c.from_device == p.from_device else c.to_port,
+            to_device=p.to_device, to_port=c.to_port if c.to_device == p.to_device else c.from_port,
+            cable_type=c.cable_type, notes=c.notes, combo=True)
+        fed.add((p.from_device, p.to_device))
+    return data + feeds
 
 
 def _components(names, connections):
@@ -501,6 +552,12 @@ def _clip_from_inside(inside, toward, r):
 def _edge_label(c):
     if getattr(c, "power", False):
         return "Power"
+    if getattr(c, "combo", False):
+        return " ".join(x for x in (f"{c.from_port or ''} \u2192 {c.to_port or ''}".strip(), f"({c.cable_type})" if c.cable_type else "") if x) + " + power"
+    mode = {"conducted": "conducted", "hybrid": "hybrid"}.get(getattr(c, "radio_mode", "") or "")
+    if mode:
+        base = c.from_port if c.from_port == c.to_port else f"{c.from_port or ''} \u2192 {c.to_port or ''}"
+        return " ".join(x for x in (base, f"({mode})", f"({c.cable_type})" if c.cable_type else "") if x)
     if c.from_port and c.from_port == c.to_port:
         ports = c.from_port
     else:
@@ -529,58 +586,312 @@ def _polyline_point(pts, t):
     return pts[0], (0, 1)
 
 
-def _route(connections, pos, width, height):
-    """Compute routed edges: waypoints, border-clipped path, and a free label spot."""
-    groups: dict[tuple, list] = {}
+GRID = 20
+TOP_SLACK = 10
+
+
+def _simplify(pts):
+    out = [pts[0]]
+    for i in range(1, len(pts) - 1):
+        a, b, c = out[-1], pts[i], pts[i + 1]
+        if (abs(a[0] - b[0]) < 1e-6 and abs(b[0] - c[0]) < 1e-6) or (abs(a[1] - b[1]) < 1e-6 and abs(b[1] - c[1]) < 1e-6):
+            continue
+        out.append(b)
+    out.append(pts[-1])
+    return out
+
+
+def _route(connections, pos, width, height, chambers=None):
+    """Orthogonal routing on a grid: no lines through foreign boxes or chambers, few bends,
+    and a rip-up/re-route loop that removes crossings and overlaps between links."""
+    import heapq
+
+    cols, rows = int(width // GRID) + 1, int(height // GRID) + 1
+    frames = dict(_frames(chambers, pos)) if chambers else {}
+    member_of = {m: k for k, v in (chambers or {}).items() for m in v}
+
+    def cells_in(r):
+        i0, i1 = max(0, int(math.floor(r[0] / GRID - 0.5)) + 1), min(cols - 1, int(math.ceil(r[2] / GRID - 0.5)) - 1)
+        j0, j1 = max(0, int(math.floor(r[1] / GRID - 0.5)) + 1), min(rows - 1, int(math.ceil(r[3] / GRID - 0.5)) - 1)
+        return {(i, j) for i in range(i0, i1 + 1) for j in range(j0, j1 + 1)
+                if r[0] <= i * GRID + GRID / 2 <= r[2] and r[1] <= j * GRID + GRID / 2 <= r[3]}
+
+    node_block = {n: cells_in(_grow(_rect(pos, n), 8)) for n in pos}
+    own_block = {n: cells_in(_rect(pos, n)) for n in pos}
+    frame_block = {k: cells_in(_grow(fr, 6)) for k, fr in frames.items()}
+
+    def ring(n, wide=False):
+        """Ports on the left, right and top of the icon; the bottom (under the caption) is for the outlet feed only."""
+        x0, y0, x1, y1 = _rect(pos, n)
+        ix0 = x0 + (BOX_W - ICON_PX) / 2
+        ix1, iy0 = ix0 + ICON_PX, y0 + 2
+        iy1 = iy0 + ICON_PX
+        out = []
+        for i in range(cols):
+            cx = i * GRID + GRID / 2
+            for j in range(rows):
+                cy = j * GRID + GRID / 2
+                if (x0 <= cx <= x1 if wide else ix0 - TOP_SLACK <= cx <= ix1 + TOP_SLACK) and y0 - GRID <= cy < y0:
+                    out.append(((i, j), 3, (cx, iy0)))
+                elif iy0 <= cy <= iy1 and x1 < cx <= x1 + GRID:
+                    out.append(((i, j), 0, (ix1, cy)))
+                elif iy0 <= cy <= iy1 and x0 - GRID <= cx < x0:
+                    out.append(((i, j), 2, (ix0, cy)))
+                elif ix0 <= cx <= ix1 and y1 < cy <= y1 + GRID:
+                    out.append(((i, j), 1, (cx, y1)))
+        return out
+
+    # Cells on a chamber border: a link may cross there but must not run along it.
+    hband: set = set()
+    vband: set = set()
+    for fr in frames.values():
+        x0, y0, x1, y1 = fr
+        for i in range(cols):
+            cx = i * GRID + GRID / 2
+            for j in range(rows):
+                cy = j * GRID + GRID / 2
+                if x0 - 11 <= cx <= x1 + 11 and (abs(cy - y0) <= 11 or abs(cy - y1) <= 11):
+                    hband.add((i, j))
+                if y0 - 11 <= cy <= y1 + 11 and (abs(cx - x0) <= 11 or abs(cx - x1) <= 11):
+                    vband.add((i, j))
+
+    # Ports hug the icon so every line visibly starts at it; only a device with more links than such ports
+    # falls back to ports along the whole top edge.
+    degree: dict = {}
     for c in connections:
         if c.from_device != c.to_device:
-            groups.setdefault(tuple(sorted((c.from_device, c.to_device))), []).append(c)
+            for n in (c.from_device, c.to_device):
+                degree[n] = degree.get(n, 0) + 1
+    rings = {}
+    for n in pos:
+        rings[n] = ring(n)
+        if degree.get(n, 0) > sum(1 for _c, d, _p in rings[n] if d != 1):
+            rings[n] = ring(n, wide=True)
+    DIRS = [(1, 0), (0, 1), (-1, 0), (0, -1)]
+    groups: list = []
+    for c in connections:
+        if c.from_device != c.to_device and c.from_device in pos and c.to_device in pos:
+            groups.append(c)
+    # Short links first; a stable order keeps results reproducible.
+    def dist(c):
+        pa, pb = pos[c.from_device], pos[c.to_device]
+        return abs(pa[0] - pb[0]) + abs(pa[1] - pb[1])
 
-    obstacles = {n: _rect(pos, n, 4) for n in pos}
+    order = sorted(range(len(groups)), key=lambda i: dist(groups[i]))
+    occ: dict = {}
+    routes: dict = {}
+    penalty: dict = {}
+    hist: dict = {}  # cells that keep ending up in conflicts get dearer, so links learn to avoid them
+
+    def route_one(idx, strict=True, bend=10):
+        c = groups[idx]
+        a, b = c.from_device, c.to_device
+        blocked = set(own_block[a]) | set(own_block[b])
+        for n in pos:
+            if n not in (a, b):
+                blocked |= node_block[n]
+        for k, cells in frame_block.items():
+            if k != member_of.get(a) and k != member_of.get(b):
+                blocked |= cells
+        # The feed from the wall outlet enters the powered device from below and leaves the outlet upwards,
+        # so it never shares a lane with the device's other power link.
+        feed = OUTLET_KEY in (a, b)
+
+        def usable(n, d):
+            if not feed:
+                return d != 1
+            if strict:
+                return d in (3, 0, 2) if n == OUTLET_KEY else d == 1
+            return d != 1 or n != OUTLET_KEY
+        starts = [(cell, d, pt) for cell, d, pt in rings[a] if cell not in blocked and usable(a, d)]
+        goals = {cell: (d, pt) for cell, d, pt in rings[b] if cell not in blocked and usable(b, d)}
+        if not starts or not goals:
+            return None
+        gx = [cell for cell in goals]
+        tx = sum(g[0] for g in gx) / len(gx)
+        ty = sum(g[1] for g in gx) / len(gx)
+        ends_here = {a, b}
+
+        def step_cost(cell, mdir):
+            pen = 0.0
+            if (mdir in (0, 2) and cell in hband) or (mdir in (1, 3) and cell in vband):
+                pen += 80
+            pen += hist.get(cell, 0)
+            for other, orient in occ.get(cell, ()):
+                if orient == "b" or orient != ("h" if mdir in (0, 2) else "v"):
+                    pen += 160
+                else:
+                    pen += 90
+            return pen
+
+        heap, best = [], {}
+        for cell, d, _ in starts:
+            st = (cell, d)
+            cost0 = step_cost(cell, d) + (12 if a == OUTLET_KEY and d != 3 else 0)
+            best[st] = cost0
+            heapq.heappush(heap, (cost0 + abs(cell[0] - tx) + abs(cell[1] - ty), cost0, cell, d, None))
+        came: dict = {}
+        found = None
+        while heap:
+            _, g, cell, d, prev = heapq.heappop(heap)
+            st = (cell, d)
+            if best.get(st, 1e18) < g - 1e-9 or st in came:
+                continue
+            came[st] = prev
+            if cell in goals:
+                found = st
+                break
+            for nd, (dx, dy) in enumerate(DIRS):
+                if (nd + 2) % 4 == d:
+                    continue
+                ni, nj = cell[0] + dx, cell[1] + dy
+                if not (0 <= ni < cols and 0 <= nj < rows) or (ni, nj) in blocked:
+                    continue
+                ng = g + 1 + (bend if nd != d else 0) + step_cost((ni, nj), nd)
+                nst = ((ni, nj), nd)
+                if ng < best.get(nst, 1e18):
+                    best[nst] = ng
+                    heapq.heappush(heap, (ng + abs(ni - tx) + abs(nj - ty), ng, (ni, nj), nd, st))
+        if not found:
+            return None
+        seq, st = [], found
+        while st is not None:
+            seq.append(st)
+            st = came[st]
+        seq.reverse()
+        cellpts = [(cx * GRID + GRID / 2, cy * GRID + GRID / 2) for (cx, cy), _ in seq]
+        sd = next(pt for cell, d, pt in rings[a] if cell == seq[0][0])
+        ed = goals[seq[-1][0]][1]
+        pts = [sd] + cellpts + [ed]
+        # Border points must be reached straight: align them to the first/last cell centre.
+        p0, p1 = cellpts[0], cellpts[-1]
+        pts[0] = (p0[0], sd[1]) if abs(sd[0] - p0[0]) > 1e-6 and abs(sd[1] - p0[1]) > 1e-6 else sd
+        pts[-1] = (p1[0], ed[1]) if abs(ed[0] - p1[0]) > 1e-6 and abs(ed[1] - p1[1]) > 1e-6 else ed
+        pts = _simplify(pts)
+        cells_used = [(cell, "h" if i + 1 < len(seq) and seq[i + 1][1] in (0, 2) else "v") for i, (cell, _) in enumerate(seq)]
+        for i, (cell, d) in enumerate(seq):
+            prev_d = seq[i - 1][1] if i else d
+            orient = "b" if (i and prev_d != d) else ("h" if d in (0, 2) else "v")
+            cells_used[i] = (cell, orient)
+        total = 0.0
+        for cell, orient in cells_used:
+            total += step_cost(cell, 0 if orient == "h" else 1) if orient != "b" else step_cost(cell, 0)
+        return pts, cells_used, total
+
+    def drop(idx):
+        for cell, orient in routes.get(idx, ([], []))[1]:
+            lst = occ.get(cell)
+            if lst:
+                lst[:] = [x for x in lst if x[0] != idx]
+
+    def put(idx, res):
+        routes[idx] = (res[0], res[1])
+        penalty[idx] = res[2]
+        for cell, orient in res[1]:
+            occ.setdefault(cell, []).append((idx, orient))
+
+    def conflict(idx, cells):
+        """Cells this route shares with other links: 0 for a clean route, shared-device overlaps count less."""
+        tot = 0.0
+        for cell, orient in cells:
+            tot += sum(1 for other, _o in occ.get(cell, ()) if other != idx)
+        return tot
+
+    def bend_count(pts):
+        return sum(1 for a, b, c in zip(pts, pts[1:], pts[2:]) if (abs(a[0] - b[0]) < 1e-6) != (abs(b[0] - c[0]) < 1e-6))
+
+    fallback: set = set()
+    for idx in order:
+        res = route_one(idx) or route_one(idx, False)
+        if res is None:
+            fallback.add(idx)
+            continue
+        put(idx, res)
+    rng = random.Random(3)
+    t_route = time.monotonic()
+    for _ in range(60):
+        bad = [i for i in routes if penalty.get(i, 0) > 0]
+        if not bad or time.monotonic() - t_route > ROUTE_BUDGET_S:
+            break
+        for i in bad:
+            for cell, orient in routes[i][1]:
+                if any(o != i for o, _ in occ.get(cell, ())):
+                    hist[cell] = hist.get(cell, 0) + 30
+        rng.shuffle(bad)
+        for idx in bad:
+            drop(idx)
+            res = route_one(idx) or route_one(idx, False)
+            if res is None:
+                put(idx, (routes[idx][0], [], 0))
+                continue
+            put(idx, res)
+        for idx in list(routes):
+            penalty[idx] = conflict(idx, routes[idx][1])
+
+    # Polish: re-lay every bendy link with a heavier bend cost and keep the result only if it is cleaner.
+    for idx in order:
+        if idx not in routes or bend_count(routes[idx][0]) <= 1:
+            continue
+        old = routes[idx]
+        drop(idx)
+        old_conf = conflict(idx, old[1])
+        res = route_one(idx, bend=22)
+        if res and conflict(idx, res[1]) <= old_conf and bend_count(res[0]) < bend_count(old[0]):
+            put(idx, res)
+        else:
+            put(idx, (old[0], old[1], old_conf))
+
     edges = []
-    for (a, b), conns in groups.items():
-        ca = (pos[a][0] + BOX_W / 2, pos[a][1] + BOX_H / 2)
-        cb = (pos[b][0] + BOX_W / 2, pos[b][1] + BOX_H / 2)
-        dx, dy = cb[0] - ca[0], cb[1] - ca[1]
-        length = math.hypot(dx, dy) or 1
-        nx, ny = -dy / length, dx / length  # canonical normal, shared by the whole group
-        others = [r for n, r in obstacles.items() if n not in (a, b)]
-
-        for k, c in enumerate(conns):
-            off = (k - (len(conns) - 1) / 2) * PARALLEL_STEP
-            p1 = (ca[0] + nx * off, ca[1] + ny * off)
-            p2 = (cb[0] + nx * off, cb[1] + ny * off)
-            pts = [p1, p2]
-            if any(_seg_hits_rect(p1, p2, r) for r in others):
-                mid = ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2)
-                for step in range(1, 7):
-                    for sign in (1, -1):
-                        d = sign * step * (GAP_Y / 2)
-                        wp = (mid[0] + nx * d, mid[1] + ny * d)
-                        if not any(
-                            _seg_hits_rect(p1, wp, r) or _seg_hits_rect(wp, p2, r) for r in others
-                        ) and not any(
-                            r[0] <= wp[0] <= r[2] and r[1] <= wp[1] <= r[3] for r in others
-                        ) and 10 <= wp[0] <= width - 10 and 10 <= wp[1] <= height - 10:
-                            pts = [p1, wp, p2]
-                            break
-                    else:
-                        continue
-                    break
-            clipped = list(pts)
-            clipped[0] = _clip_from_inside(pts[0], pts[1], _rect(pos, a))
-            clipped[-1] = _clip_from_inside(pts[-1], pts[-2], _rect(pos, b))
-            edge = {"c": c, "src": a, "dst": b, "full": pts, "path": clipped}
-            if c.from_device == b:  # keep every edge oriented from -> to
-                edge.update(src=b, dst=a, full=pts[::-1], path=clipped[::-1])
-            edges.append(edge)
+    for idx, c in enumerate(groups):
+        a, b = c.from_device, c.to_device
+        if idx in routes and routes[idx][0]:
+            pts = routes[idx][0]
+        else:
+            ca = (pos[a][0] + BOX_W / 2, pos[a][1] + BOX_H / 2)
+            cb = (pos[b][0] + BOX_W / 2, pos[b][1] + BOX_H / 2)
+            pts = [_clip_from_inside(ca, cb, _rect(pos, a)), _clip_from_inside(cb, ca, _rect(pos, b))]
+        edges.append({"c": c, "src": a, "dst": b, "full": pts, "path": pts})
     return edges
 
 
-def _place_labels(edges, pos, width, height):
+def _rounded_path(pts, r=14):
+    d = f"M{pts[0][0]:.1f},{pts[0][1]:.1f}"
+    for i in range(1, len(pts) - 1):
+        p, q, n = pts[i - 1], pts[i], pts[i + 1]
+        l1, l2 = math.dist(p, q) or 1, math.dist(q, n) or 1
+        rr = min(r, l1 / 2, l2 / 2)
+        a = (q[0] - (q[0] - p[0]) / l1 * rr, q[1] - (q[1] - p[1]) / l1 * rr)
+        b = (q[0] + (n[0] - q[0]) / l2 * rr, q[1] + (n[1] - q[1]) / l2 * rr)
+        d += f" L{a[0]:.1f},{a[1]:.1f} Q{q[0]:.1f},{q[1]:.1f} {b[0]:.1f},{b[1]:.1f}"
+    return d + f" L{pts[-1][0]:.1f},{pts[-1][1]:.1f}"
+
+
+def _offset_path(pts, off):
+    """Parallel copy of an orthogonal polyline, shifted `off` px to the left of its direction."""
+    def unit(p, q):
+        l = math.dist(p, q) or 1
+        return ((q[0] - p[0]) / l, (q[1] - p[1]) / l)
+    out = []
+    for i, q in enumerate(pts):
+        a = unit(pts[i - 1], q) if i > 0 else None
+        b = unit(q, pts[i + 1]) if i < len(pts) - 1 else None
+        nx = sum(-u[1] for u in (a, b) if u)
+        ny = sum(u[0] for u in (a, b) if u)
+        if a and b and abs(a[0] * b[0] + a[1] * b[1]) < 0.5:
+            out.append((q[0] + nx * off, q[1] + ny * off))
+        else:
+            u = a or b
+            out.append((q[0] - u[1] * off, q[1] + u[0] * off))
+    return out
+
+
+def _place_labels(edges, pos, width, height, frames=()):
     """Put each label beside its link: above a horizontal link, to the left of a vertical one."""
     node_rects = [_rect(pos, n, 2) for n in pos]
     placed: list[tuple] = []
+    borders = []
+    for _, (x0, y0, x1, y1) in frames:
+        borders += [((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)), ((x1, y1), (x0, y1)), ((x0, y1), (x0, y0))]
     for e in sorted(edges, key=lambda e: -len(_edge_label(e["c"]))):
         text = _edge_label(e["c"])
         e["label"] = None
@@ -609,8 +920,10 @@ def _place_labels(edges, pos, width, height):
                         for k in range(len(o["path"]) - 1)
                         if _seg_hits_rect(o["path"][k], o["path"][k + 1], rect)
                     )
+                    on_border = sum(1 for a, b in borders if _seg_hits_rect(a, b, grown))
                     cost = (
-                        sum(_overlap(rect, r) for r in node_rects + placed)
+                        on_border * 600
+                        + sum(_overlap(rect, r) for r in node_rects + placed)
                         + outside * 10
                         + crossings * 400
                         + dist * 2
@@ -669,16 +982,24 @@ def _frames(chambers, pos):
     return frames
 
 
-def _inline_chains(setup, nodes, all_conns):
+def _inline_chains(setup, nodes, all_conns, chambers=None):
     """Chains of attenuators (each with exactly two data links) sit on the cable they interrupt."""
     overrides = getattr(setup, "icon_overrides", None)
     cand = {n for n, (_, _, t) in nodes.items() if n != OUTLET_KEY and icon_kind(t, overrides) == "attenuator"}
     nbrs = {}
     for n in cand:
         links = [c for c in all_conns if n in (c.from_device, c.to_device) and not getattr(c, "power", False)]
-        if len(links) != 2 or any(c.from_device == c.to_device for c in links):
+        if any(c.from_device == c.to_device for c in links) or len(links) < 2:
             continue
         ends = [c.to_device if c.from_device == n else c.from_device for c in links]
+        if len(ends) > 2:
+            # Extra links are control links (e.g. USB to a PC): the signal path is the pair in different chambers.
+            where = {m: k for k, v in (chambers or {}).items() for m in v}
+            pairs = [(x, y) for i, x in enumerate(ends) for y in ends[i + 1:]
+                     if x != y and where.get(x) and where.get(y) and where[x] != where[y]]
+            if len(pairs) != 1:
+                continue
+            ends = list(pairs[0])
         if ends[0] != ends[1]:
             nbrs[n] = ends
     chains, seen = [], set()
@@ -700,8 +1021,11 @@ def _inline_chains(setup, nodes, all_conns):
             prev, cur = cur, (nxt[0] if nxt else None)
             if cur is None:
                 break
-        a = next(x for x in nbrs[run[0]] if x not in run)
-        b = next(x for x in nbrs[run[-1]] if x not in run)
+        if len(run) == 1:
+            a, b = nbrs[run[0]]
+        else:
+            a = next(x for x in nbrs[run[0]] if x not in run)
+            b = next(x for x in nbrs[run[-1]] if x not in run)
         if a == b or a in nbrs or b in nbrs:
             continue
         chains.append({"atts": run, "a": a, "b": b})
@@ -861,10 +1185,26 @@ def _count_crossings(edges):
     k = 0
     for i, e in enumerate(edges):
         for f in edges[i + 1:]:
-            if len({e["src"], e["dst"], f["src"], f["dst"]}) < 4:
-                continue
             if any(_cross(a, b, p, q) for a, b in zip(e["path"], e["path"][1:]) for p, q in zip(f["path"], f["path"][1:])):
                 k += 1
+    return k
+
+
+def _crossing_pairs(edges):
+    out = []
+    for i, e in enumerate(edges):
+        for j in range(i + 1, len(edges)):
+            f = edges[j]
+            if any(_cross(a, b, p, q) for a, b in zip(e["path"], e["path"][1:]) for p, q in zip(f["path"], f["path"][1:])):
+                out.append((i, j))
+    return out
+
+
+def _count_bends(edges):
+    k = 0
+    for e in edges:
+        p = e["path"]
+        k += sum(1 for a, b, c in zip(p, p[1:], p[2:]) if (abs(a[0] - b[0]) < 1e-6) != (abs(b[0] - c[0]) < 1e-6))
     return k
 
 
@@ -961,11 +1301,187 @@ def _anneal(cost, settle, start, best, best_cost, groups, labels, names, rng, it
     return best, best_cost
 
 
+def _slot_layout(names, all_conns, chambers, chains, seed=5, lone=()):
+    """Chambers side by side, attenuators in the gap between them, everything else below.
+    Nodes are assigned to fixed slots; an annealing search over the assignment removes crossings.
+    Returns None when the setup does not fit this scheme."""
+    if not chambers:
+        return None
+    order = list(chambers)
+    where = {m: i for i, k in enumerate(order) for m in chambers[k]}
+    in_att = {x for ch in chains for x in ch["atts"]} | set(lone)
+    cw, chh = BOX_W + 60, BOX_H + 70
+    units = []  # chain units: (gap index, ordered attenuators)
+    if len(order) >= 2:
+        units += [(0, [n]) for n in lone]
+    for ch in chains:
+        ia, ib = where.get(ch["a"]), where.get(ch["b"])
+        if ia is None or ib is None or abs(ia - ib) != 1:
+            return None
+        atts = ch["atts"] if ia < ib else ch["atts"][::-1]
+        units.append((min(ia, ib), atts))
+    if len(order) < 2:
+        in_att -= set(lone)
+    members = [[m for m in chambers[k] if m in names and m not in in_att] for k in order]
+    outside = [n for n in names if n not in in_att and n not in where]
+    # geometry
+    cols = [max(1, math.ceil(math.sqrt(len(m) * 1.4))) for m in members]
+    rows = [max(1, math.ceil(len(m) / c)) + (1 if len(m) > 2 else 0) for m, c in zip(members, cols)]
+    gap_units = {g: [u for u in units if u[0] == g] for g in range(len(order) - 1)}
+    gap_w = [max([len(u[1]) for u in gap_units[g]] + [0]) * cw + 90 for g in range(len(order) - 1)]
+    gap_rows = [max(len(gap_units[g]), 1, max(rows) if lone else 1) for g in range(len(order) - 1)]
+    x0, ox = [], 40.0
+    for i in range(len(order)):
+        x0.append(ox)
+        ox += cols[i] * cw + (gap_w[i] if i < len(order) - 1 else 0)
+    total_w = ox
+    top_rows = max(rows + gap_rows)
+    slots_c = [[(x0[i] + (j % cols[i]) * cw + (cw - BOX_W) / 2, 40 + (j // cols[i]) * chh + 20)
+                for j in range(cols[i] * rows[i])] for i in range(len(order))]
+    out_cols = max(1, int(total_w // cw))
+    # The wall outlet always goes to the bottom row, under the devices it feeds.
+    has_outlet = OUTLET_KEY in outside
+    outside = [n for n in outside if n != OUTLET_KEY]
+    out_rows = max(1, math.ceil(len(outside) / out_cols) + 1)
+    base_y = 40 + top_rows * chh + 70
+    all_o = [(40 + (j % out_cols) * cw, base_y + (j // out_cols) * chh) for j in range(out_cols * out_rows)]
+    slots_o = all_o
+    fed = sorted({c.to_device if c.from_device == OUTLET_KEY else c.from_device for c in all_conns if OUTLET_KEY in (c.from_device, c.to_device)})
+    gap_x = [x0[g] + cols[g] * cw + 45 for g in range(len(order) - 1)]
+
+    groups = [(members[i], slots_c[i]) for i in range(len(order))] + [(outside, slots_o)]
+    groups = [(m, sl) for m, sl in groups if m]
+    pairs = sorted({tuple(sorted((c.from_device, c.to_device))) for c in all_conns if c.from_device != c.to_device})
+    rng = random.Random(seed)
+
+    def build(assign, rowsel):
+        pos = {}
+        for (mem, sl), a in zip(groups, assign):
+            for n, k in zip(mem, a):
+                pos[n] = sl[k]
+        for (g, atts), r in zip(units, rowsel):
+            for j, n in enumerate(atts):
+                pos[n] = (gap_x[g] + j * cw + (cw - BOX_W) / 2 - 22, 40 + r * chh + 20)
+        if has_outlet:
+            xs = [pos[n][0] for n in fed if n in pos] or [total_w / 2 - BOX_W / 2]
+            pos[OUTLET_KEY] = (sum(xs) / len(xs), max(y for _, y in pos.values()) + chh)
+        return pos
+
+    def cost(pos):
+        cen = {n: (x + BOX_W / 2, y + BOX_H / 2) for n, (x, y) in pos.items()}
+        hard = 0
+        for i, (a, b) in enumerate(pairs):
+            for c, d in pairs[i + 1:]:
+                if len({a, b, c, d}) == 4 and _cross(cen[a], cen[b], cen[c], cen[d]):
+                    hard += 1000
+            for n in pos:
+                if n not in (a, b) and _seg_hits_rect(cen[a], cen[b], _rect(pos, n, 2)):
+                    hard += 300
+        return hard + 0.01 * sum(math.dist(cen[a], cen[b]) for a, b in pairs), hard
+
+    best = None
+    for attempt in range(6):
+        assign = [rng.sample(range(len(sl)), len(mem)) for mem, sl in groups]
+        rowsel = [0] * len(units)
+        for g in gap_units:
+            ids = [i for i, u in enumerate(units) if u[0] == g]
+            for r, i in enumerate(ids):
+                rowsel[i] = r
+        cur = build(assign, rowsel)
+        cur_c, cur_h = cost(cur)
+        iters = 5000
+        for it in range(iters):
+            t = 300.0 * (1 - it / iters) + 1
+            a2 = [list(a) for a in assign]
+            r2 = list(rowsel)
+            if units and rng.random() < 0.15:
+                i = rng.randrange(len(units))
+                g = units[i][0]
+                r2[i] = rng.randrange(gap_rows[g])
+                if any(j != i and units[j][0] == g and r2[j] == r2[i] for j in range(len(units))):
+                    continue
+            else:
+                gi = rng.randrange(len(groups))
+                mem, sl = groups[gi]
+                k = rng.randrange(len(mem))
+                free = [x for x in range(len(sl)) if x not in a2[gi]]
+                if free and rng.random() < 0.5:
+                    a2[gi][k] = rng.choice(free)
+                elif len(mem) > 1:
+                    j = rng.randrange(len(mem))
+                    a2[gi][k], a2[gi][j] = a2[gi][j], a2[gi][k]
+                else:
+                    continue
+            cand = build(a2, r2)
+            c, h = cost(cand)
+            if c <= cur_c or rng.random() < math.exp(-(c - cur_c) / t):
+                assign, rowsel, cur, cur_c, cur_h = a2, r2, cand, c, h
+                if best is None or c < best[0]:
+                    best = (c, h, cand)
+        if best and best[1] == 0 and attempt >= 1:
+            break
+        if best and best[1] < 1000 and attempt >= 3:
+            break
+    return best[2] if best and best[1] < 1000 else None
+
+
+def base_groups_members(groups):
+    return {m for v in groups.values() for m in v}
+
+
 def _prepare(setup):
+    """Lay out and route the diagram. Mains feeds from the outlet and power strips are not drawn as lines:
+    each powered device gets a small outlet icon next to it, so these feeds never cross other links."""
+    return _prepare_once(setup, hide_feeds=True) or _prepare_once(setup)
+
+
+def _split_note(sub):
+    """Subtitle may carry a mains note after a newline: 'kind|Source name'."""
+    sub, _, note = sub.partition("\n")
+    kind, _, text = note.partition("|")
+    return sub, (kind, text) if text else None
+
+
+def _prepare_once(setup, hide_feeds=False):
     nodes = _nodes(setup)
     chambers = _chambers(setup, nodes)
-    all_conns = list(setup.connections) + _power_links(setup)
-    chains = _inline_chains(setup, nodes, all_conns)
+    all_conns = _all_links(setup)
+    overrides = getattr(setup, "icon_overrides", None)
+    # Wall outlets and power strips always sit in the bottom row, under whatever they feed.
+    in_chamber = {m for v in chambers.values() for m in v}
+    bottom = {OUTLET_KEY} | {n for n, (_t, _s, dtype) in nodes.items()
+                             if n != OUTLET_KEY and icon_kind(dtype, overrides) in ("outlet", "power_strip")}
+    bottom = {n for n in bottom if n in nodes and n not in in_chamber}
+    if hide_feeds:
+        feeds = [c for c in all_conns if getattr(c, "power", False) and c.from_device in bottom]
+        if not feeds:
+            return None
+        all_conns = [c for c in all_conns if c not in feeds]
+        for c in feeds:
+            title, sub, dtype = nodes[c.to_device]
+            src_title, _s, src_type = nodes[c.from_device]
+            if "\n" in sub:
+                sub = f"{sub}, {src_title}"
+            else:
+                sub = f"{sub}\n{icon_kind(src_type, overrides)}|{src_title}"
+            nodes[c.to_device] = (title, sub, dtype)
+        linked = {x for c in all_conns for x in (c.from_device, c.to_device)}
+        for n in list(bottom):
+            if n not in linked:
+                nodes.pop(n, None)
+                bottom.discard(n)
+    chains = _inline_chains(setup, nodes, all_conns, chambers)
+    # An attenuator with a single link is not on any cable, but it still sits in the gap between the first two chambers.
+    chained = {x for ch in chains for x in ch["atts"]}
+    in_chambers = {m for v in chambers.values() for m in v}
+    lone_atts = [n for n, (_t, _s, dt) in nodes.items() if len(chambers) >= 2 and n != OUTLET_KEY and n not in chained
+                 and n not in in_chambers and icon_kind(dt, overrides) == "attenuator"]
+    if lone_atts:
+        c1, c2 = list(chambers)[:2]
+        label = "between " + " and ".join("Ch" + re.sub(r"\D", "", k) if re.search(r"\d", k) else k for k in (c1, c2))
+        for n in lone_atts:
+            t, sub, dt = nodes[n]
+            nodes[n] = (t, label + sub[len(sub.split(chr(10))[0]):], dt)
     in_att = {x for ch in chains for x in ch["atts"]}
     layout_names = [n for n in nodes if n not in in_att]
     layout_conns = [c for c in all_conns if c.from_device not in in_att and c.to_device not in in_att]
@@ -974,22 +1490,82 @@ def _prepare(setup):
         for ch in chains
     ]
     base_groups = {k: set(v) - in_att for k, v in chambers.items()}
-    pos, width, height = _layout(layout_names, layout_conns, list(base_groups.values()))
-    _repair_frames(base_groups, pos)
-    pos = _make_room(chains, pos, base_groups)
-    pos = _settle_chains(chains, pos, base_groups)
-    pairs = sorted({tuple(sorted((c.from_device, c.to_device))) for c in all_conns if c.from_device != c.to_device})
 
-    for attempt in range(3):
-        refined = _refine(pos, pairs, base_groups, chains, width, height, seed=11 + attempt * 7)
-        minx = min(x for x, _ in refined.values())
-        miny = min(y for _, y in refined.values())
-        shifted = {n: (x - minx + MARGIN, y - miny + MARGIN) for n, (x, y) in refined.items()}
-        w = int(max(x for x, _ in shifted.values()) + BOX_W + MARGIN)
-        h = int(max(y for _, y in shifted.values()) + BOX_H + MARGIN)
-        edges = _route(all_conns, shifted, w, h)
-        if _count_crossings(edges) == 0:
+    def finish(raw):
+        raw = dict(raw)
+        low = [n for n in raw if n in bottom]
+        others = [p for n, p in raw.items() if n not in bottom]
+        if low and others:
+            y = max(py for _, py in others) + BOX_H + 70
+            def want_x(n):
+                nb = {c.to_device if c.from_device == n else c.from_device for c in all_conns if n in (c.from_device, c.to_device)}
+                xs = [raw[m][0] for m in nb if m in raw and m not in bottom]
+                return sum(xs) / len(xs) if xs else raw[n][0]
+            placed_x = None
+            for n in sorted(low, key=want_x):
+                x = want_x(n)
+                if placed_x is not None and x < placed_x + BOX_W + 40:
+                    x = placed_x + BOX_W + 40
+                placed_x = x
+                raw[n] = (x, y)
+        minx = min(x for x, _ in raw.values())
+        miny = min(y for _, y in raw.values())
+        sh = {n: (x - minx + MARGIN, y - miny + MARGIN) for n, (x, y) in raw.items()}
+        ww = int(max(x for x, _ in sh.values()) + BOX_W + MARGIN + 40)
+        hh = int(max(y for _, y in sh.values()) + BOX_H + MARGIN + 40)
+        return sh, ww, hh, _route(all_conns, sh, ww, hh, base_groups)
+
+    result = None
+    t0 = time.monotonic()
+    for seed in range(3):
+        raw = _slot_layout(list(nodes), all_conns, chambers, chains, seed=5 + seed * 17, lone=lone_atts)
+        if raw is None:
             break
+        sh, ww, hh, es = finish(raw)
+        k = (_count_crossings(es), _count_bends(es))
+        if result is None or k < result[0]:
+            result = (k, sh, ww, hh, es, raw)
+        if k[0] == 0 or time.monotonic() - t0 > LAYOUT_BUDGET_S:
+            break
+    if result is None:
+        pos, width, height = _layout(layout_names, layout_conns, list(base_groups.values()))
+        _repair_frames(base_groups, pos)
+        pos = _make_room(chains, pos, base_groups)
+        pos = _settle_chains(chains, pos, base_groups)
+        pairs = sorted({tuple(sorted((c.from_device, c.to_device))) for c in all_conns if c.from_device != c.to_device})
+        for attempt in range(3):
+            refined = _refine(pos, pairs, base_groups, chains, width, height, seed=11 + attempt * 7)
+            sh, ww, hh, es = finish(refined)
+            k = (_count_crossings(es), _count_bends(es))
+            if result is None or k < result[0]:
+                result = (k, sh, ww, hh, es, refined)
+            if k[0] == 0 or time.monotonic() - t0 > LAYOUT_BUDGET_S:
+                break
+    # Lines must not cross: while some do, swap devices that sit on crossing lines and keep any swap that helps.
+    key, shifted, w, h, edges, raw = result
+    group_of = {m: k for k, v in base_groups.items() for m in v}
+    movable = [n for n in raw if n not in bottom and n not in in_att]
+    rng = random.Random(17)
+    stale = 0
+    while key[0] > 0 and len(movable) > 1 and time.monotonic() - t0 < SEARCH_BUDGET_S and stale < 40:
+        hit = _crossing_pairs(edges)
+        ends = {n for i, j in hit for n in (edges[i]["src"], edges[i]["dst"], edges[j]["src"], edges[j]["dst"])}
+        pick = [n for n in movable if n in ends] or movable
+        u = rng.choice(pick)
+        mates = [v for v in movable if v != u and group_of.get(v) == group_of.get(u)]
+        if not mates:
+            stale += 1
+            continue
+        v = rng.choice(mates)
+        cand = dict(raw)
+        cand[u], cand[v] = raw[v], raw[u]
+        sh2, ww2, hh2, es2 = finish(cand)
+        k2 = (_count_crossings(es2), _count_bends(es2))
+        if k2 < key:
+            key, shifted, w, h, edges, raw = k2, sh2, ww2, hh2, es2, cand
+            stale = 0
+        else:
+            stale += 1
     pos, width, height = shifted, max(w, 1), max(h, 1)
     frames = _frames(base_groups, {n: p for n, p in pos.items() if n not in in_att})
     where = {m: re.sub(r"(?i)chamber\s*", "Ch", k) for k, v in base_groups.items() for m in v}
@@ -998,16 +1574,19 @@ def _prepare(setup):
             for att in ch["atts"]:
                 title, _sub, dtype = nodes[att]
                 nodes[att] = (title, f"between {where[ch['a']]} and {where[ch['b']]}", dtype)
-    _place_labels(edges, pos, width, height)
+    _place_labels(edges, pos, width, height, frames)
     return nodes, pos, width, height, edges, frames
 
 
-LAYOUT_VERSION = 3
+LAYOUT_VERSION = 25
+ROUTE_BUDGET_S = 6  # per routing pass
+SEARCH_BUDGET_S = 30  # total time allowed for the crossing-removal search
+LAYOUT_BUDGET_S = 10  # stop trying extra layouts after this many seconds
 
 
-def build_svg(setup) -> str:
+def build_svg(setup, prepared=None) -> str:
     overrides = getattr(setup, "icon_overrides", None)
-    nodes, pos, width, height, edges, frames = _prepare(setup)
+    nodes, pos, width, height, edges, frames = prepared or _prepare(setup)
     out = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}" font-family="Arial, sans-serif" font-size="12" data-layout="{LAYOUT_VERSION}">',
@@ -1016,6 +1595,8 @@ def build_svg(setup) -> str:
         '<path d="M0,0L10,5L0,10z" fill="#374151"/></marker>'
         '<marker id="as" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto">'
         '<path d="M10,0L0,5L10,10z" fill="#374151"/></marker>'
+        f'<marker id="aer" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="{RADIO_COLOR}"/></marker>'
+        f'<marker id="asr" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10,0L0,5L10,10z" fill="{RADIO_COLOR}"/></marker>'
         f'<marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">'
         f'<path d="M0,0L10,5L0,10z" fill="{POWER_COLOR}"/></marker></defs>',
     ]
@@ -1025,9 +1606,19 @@ def build_svg(setup) -> str:
         )
         out.append(f'<text x="{x1 - 16:.1f}" y="{y0 + 22:.1f}" text-anchor="end" font-size="13" fill="#111">{escape(label.replace("Chamber", "Chamber ").replace("  ", " "))}</text>')
     for e in edges:
-        d = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in e["path"])
-        if getattr(e["c"], "power", False):
+        d = _rounded_path(e["path"])
+        if getattr(e["c"], "combo", False):
+            # Data and power in one cable: two lines side by side, solid dark data and dashed red power.
+            d1 = _rounded_path(_offset_path(e["path"], 3.5))
+            d2 = _rounded_path(_offset_path(e["path"], -3.5))
+            out.append(f'<path d="{d1}" fill="none" stroke="#374151" stroke-width="1.8"/>')
+            out.append(f'<path d="{d2}" fill="none" stroke="{POWER_COLOR}" stroke-width="1.8" stroke-dasharray="7 5" marker-end="url(#ap)"/>')
+        elif getattr(e["c"], "power", False):
             out.append(f'<path d="{d}" fill="none" stroke="{POWER_COLOR}" stroke-width="1.8" stroke-dasharray="7 5" marker-end="url(#ap)"/>')
+        elif _is_radio(e["c"]):
+            mode = getattr(e["c"], "radio_mode", "")
+            dash = {"conducted": "", "hybrid": ' stroke-dasharray="10 5 1 5"'}.get(mode, ' stroke-dasharray="1 6" stroke-linecap="round"')
+            out.append(f'<path d="{d}" fill="none" stroke="{RADIO_COLOR}" stroke-width="2.2"{dash} marker-start="url(#asr)" marker-end="url(#aer)"/>')
         else:
             out.append(f'<path d="{d}" fill="none" stroke="#374151" stroke-width="1.8" marker-start="url(#as)" marker-end="url(#ae)"/>')
     for name, (title, sub, dtype) in nodes.items():
@@ -1036,12 +1627,19 @@ def build_svg(setup) -> str:
         tx = x + BOX_W / 2
         max_chars = int((BOX_W - 8) / CHAR_W)
         shown = title if len(title) <= max_chars else title[: max_chars - 1] + "\u2026"
+        sub, note = _split_note(sub)
+        power_note = note[1] if note else ""
         shown_sub = sub if len(sub) <= max_chars else sub[: max_chars - 1] + "\u2026"
+        note_chars = max_chars - 4
+        shown_note = power_note if len(power_note) <= note_chars else power_note[: note_chars - 1] + "\u2026"
         out.append(
             f'<text x="{tx}" y="{y + 70}" text-anchor="middle" font-size="13" font-weight="bold" fill="#111">{escape(shown)}</text>'
         )
         if sub:
             out.append(f'<text x="{tx}" y="{y + 88}" text-anchor="middle" fill="#374151">{escape(shown_sub)}</text>')
+        if note:
+            out.append(_icon_svg(note[0], x + BOX_W - 28, y + 88, 24))
+            out.append(f'<text x="{tx - 12}" y="{y + 105}" text-anchor="middle" fill="{POWER_COLOR}">{escape(shown_note)}</text>')
     for e in edges:
         lb = e["label"]
         if lb:
@@ -1050,20 +1648,30 @@ def build_svg(setup) -> str:
             # Separate white halo underneath keeps labels readable over lines in any renderer.
             out.append(f'<text {pos_attrs} fill="#fff" stroke="#fff" stroke-width="4" stroke-linejoin="round">{text}</text>')
             label_fill = POWER_COLOR if getattr(e["c"], "power", False) else "#111"
-            out.append(f'<text {pos_attrs} fill="{label_fill}">{text}</text>')
+            if getattr(e["c"], "combo", False):
+                head, tail = lb["text"][: -len(" power")], "\u00a0power"
+                out.append(f'<text {pos_attrs} fill="#111">{escape(head)}<tspan fill="{POWER_COLOR}" >{tail}</tspan></text>')
+            else:
+                out.append(f'<text {pos_attrs} fill="{label_fill}">{text}</text>')
     out.append("</svg>")
     return "".join(out)
 
 
 def _edge_style(e) -> str:
+    if getattr(e["c"], "combo", False):
+        return f"startArrow=none;endArrow=classic;dashed=1;html=1;rounded=1;arcSize=40;strokeWidth=2;strokeColor={POWER_COLOR};labelBackgroundColor=#ffffff;"
     if getattr(e["c"], "power", False):
-        return f"startArrow=none;endArrow=classic;dashed=1;html=1;strokeWidth=2;strokeColor={POWER_COLOR};fontColor={POWER_COLOR};labelBackgroundColor=#ffffff;"
-    return "startArrow=classic;endArrow=classic;html=1;strokeWidth=2;labelBackgroundColor=#ffffff;"
+        return f"startArrow=none;endArrow=classic;dashed=1;html=1;rounded=1;arcSize=40;strokeWidth=2;strokeColor={POWER_COLOR};fontColor={POWER_COLOR};labelBackgroundColor=#ffffff;"
+    if _is_radio(e["c"]):
+        mode = getattr(e["c"], "radio_mode", "")
+        dash = {"conducted": "", "hybrid": "dashed=1;dashPattern=10 4 1 4;"}.get(mode, "dashed=1;dashPattern=1 4;")
+        return f"startArrow=classic;endArrow=classic;{dash}html=1;rounded=1;arcSize=40;strokeWidth=2;strokeColor={RADIO_COLOR};labelBackgroundColor=#ffffff;"
+    return "startArrow=classic;endArrow=classic;html=1;rounded=1;arcSize=40;strokeWidth=2;labelBackgroundColor=#ffffff;"
 
 
-def build_drawio(setup) -> str:
+def build_drawio(setup, prepared=None) -> str:
     overrides = getattr(setup, "icon_overrides", None)
-    nodes, pos, _, _, edges, frames = _prepare(setup)
+    nodes, pos, _, _, edges, frames = prepared or _prepare(setup)
     ids = {name: f"n{i}" for i, name in enumerate(nodes)}
     cells = ['<mxCell id="0"/>', '<mxCell id="1" parent="0"/>']
     for k, (label, (x0, y0, x1, y1)) in enumerate(frames):
@@ -1074,7 +1682,8 @@ def build_drawio(setup) -> str:
         )
     for name, (title, sub, dtype) in nodes.items():
         x, y = pos[name]
-        value = escape(title) + (f"<br>{escape(sub)}" if sub else "")
+        sub, note = _split_note(sub)
+        value = escape(title) + (f"<br>{escape(sub)}" if sub else "") + (f"<br>Power: {escape(note[1])}" if note else "")
         cells.append(
             f'<mxCell id="{ids[name]}" value={quoteattr(value)} '
             f'style="shape=image;html=1;image={_icon_datauri(icon_kind(dtype, overrides))};'
@@ -1083,7 +1692,7 @@ def build_drawio(setup) -> str:
         )
     for i, e in enumerate(edges):
         lb = e["label"]
-        mid = e["full"][1:-1]
+        mid = e["full"]
         points = (
             '<Array as="points">'
             + "".join(f'<mxPoint x="{p[0]:.1f}" y="{p[1]:.1f}"/>' for p in mid)

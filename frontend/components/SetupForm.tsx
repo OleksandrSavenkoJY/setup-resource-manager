@@ -3,11 +3,15 @@
 import { useState } from "react";
 import { useEffect } from "react";
 import OptionManager, { IconDef } from "@/components/OptionManager";
-import { createDeviceType, createInterface, deleteDeviceType, deleteInterface, fetchInterfaces, createSetup, fetchDeviceTypes, fetchDeviceIcons, setDeviceTypeIcon, updateSetup } from "@/lib/api";
+import { createDeviceType, createInterface, deleteDeviceType, deleteInterface, fetchInterfaces, createSetup, fetchDeviceTypes, fetchDeviceIcons, setDeviceTypeIcon, renameDeviceType, updateSetup, fetchAccessPoints, setSetupAccessPoints, type AccessPoint } from "@/lib/api";
 import { useCurrentUser } from "@/lib/useCurrentUser";
+import { CRITICALITY } from "@/components/Criticality";
 import { useRouter } from "next/navigation";
 
 type NetEntry = { name: string; type: string; ip: string; mac: string };
+
+const RADIO_RE = /wi-?fi|wlan|\bble\b|bluetooth|matter|thread|zigbee|z-?wave|lora|nfc|cellular|\blte\b|\b5g\b|radio|\brf\b|uwb|802\.15/i;
+const isRadio = (name: string) => RADIO_RE.test(name);
 
 const NET_TYPES = ["Ethernet", "Wi-Fi", "Bluetooth", "Cellular", "Other"];
 const IP_RE = /^[0-9a-fA-F:.]+(\/\d{1,3})?$/;
@@ -24,18 +28,36 @@ type DeviceEntry = {
   location: string;
   // OUTLET, "" or the uid of the source device (names can still be empty or change while editing).
   power_from: string;
+  pfa_ip: string;
   notes: string;
 };
 
 const OUTLET = "__outlet__";
+// Octet-wise IP order; APs without an IP go last, ties fall back to the name.
+function compareApIp(a: { ip?: string; name: string }, b: { ip?: string; name: string }) {
+  const key = (ip?: string) => (ip && /^\d+(\.\d+){3}$/.test(ip.trim()) ? ip.trim().split(".").map(Number) : null);
+  const x = key(a.ip), y = key(b.ip);
+  if (x && y) {
+    for (let i = 0; i < 4; i++) if (x[i] !== y[i]) return x[i] - y[i];
+  } else if (x || y) {
+    return x ? -1 : 1;
+  }
+  return a.name.localeCompare(b.name);
+}
+
+const isApType = (t: string) => /^3[\s-]*rd[\s-]*party[\s-]*(ap|access point|router)s?$/i.test(t.trim());
 
 type ConnectionEntry = {
+  uid: string;
   from_device: string;
   from_port: string;
   to_device: string;
   to_port: string;
   cable_type: string;
   notes: string;
+  powers: string;
+  link: "wired" | "radio";
+  radio_mode: string;
 };
 
 type Props = {
@@ -49,7 +71,7 @@ const DESKTOP = "Desktop";
 
 
 function emptyConnection(): ConnectionEntry {
-  return { from_device: "", from_port: "", to_device: "", to_port: "", cable_type: "", notes: "" };
+  return { uid: newUid(), from_device: "", from_port: "", to_device: "", to_port: "", cable_type: "", notes: "", powers: "", link: "wired", radio_mode: "" };
 }
 
 function emptyDevice(): DeviceEntry {
@@ -59,16 +81,21 @@ function emptyDevice(): DeviceEntry {
     name: "",
     location: DESKTOP,
     power_from: "",
+    pfa_ip: "",
     net_interfaces: [],
     notes: "",
   };
 }
+
+const byText = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 
 export default function SetupForm({ mode, setupId, initialData }: Props) {
   const router = useRouter();
   const [name, setName] = useState<string>(initialData?.name ?? "");
   const [description, setDescription] = useState<string>(initialData?.description ?? "");
   const [chamber, setChamber] = useState<boolean>(initialData?.chamber ?? false);
+  const [allAps, setAllAps] = useState<AccessPoint[]>([]);
+  const [criticality, setCriticality] = useState<number>(initialData?.criticality ?? 3);
   const [outletsUsed, setOutletsUsed] = useState<number>(initialData?.outlets_used ?? 0);
   const [chamberCount, setChamberCount] = useState<number>(
     initialData?.chamber_count ?? (initialData?.chamber ? 1 : 0)
@@ -86,6 +113,7 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
           name: d.name ?? "",
           location: d.location ?? DESKTOP,
           power_from: d.power_from ?? "",
+          pfa_ip: d.pfa_ip ?? "",
           net_interfaces: (d.net_interfaces ?? []).map((n: any) => ({ name: n.name ?? "", type: n.type ?? "", ip: n.ip ?? "", mac: n.mac ?? "" })),
           notes: d.notes ?? "",
         }));
@@ -95,6 +123,10 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
   // Devices added with "Add device" stay highlighted until the user edits them.
   const [freshUids, setFreshUids] = useState<Set<string>>(new Set());
   const [scrollToUid, setScrollToUid] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchAccessPoints().then(setAllAps).catch(console.error);
+  }, []);
 
   useEffect(() => {
     if (!scrollToUid) return;
@@ -114,14 +146,29 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
     });
   };
 
+  const [freshConnUids, setFreshConnUids] = useState<Set<string>>(new Set());
+  const [scrollToConn, setScrollToConn] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!scrollToConn) return;
+    const card = document.getElementById(`conn-card-${scrollToConn}`);
+    card?.scrollIntoView({ behavior: "smooth", block: "center" });
+    card?.querySelector("select")?.focus({ preventScroll: true });
+    setScrollToConn(null);
+  }, [scrollToConn]);
+
   const [connections, setConnections] = useState<ConnectionEntry[]>(
     (initialData?.connections ?? []).map((c: any) => ({
+      uid: newUid(),
       from_device: c.from_device ?? "",
       from_port: c.from_port ?? "",
       to_device: c.to_device ?? "",
       to_port: c.to_port ?? "",
       cable_type: c.cable_type ?? "",
       notes: c.notes ?? "",
+      powers: c.powers ?? "",
+      link: isRadio(c.from_port ?? "") || isRadio(c.to_port ?? "") ? "radio" : "wired",
+      radio_mode: c.radio_mode ?? "",
     }))
   );
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -142,6 +189,17 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
 
   const chambersOn = chamber && chamberCount > 0;
   const locationOptions = [DESKTOP, ...(chambersOn ? Array.from({ length: chamberCount }, (_, i) => `Chamber${i + 1}`) : [])];
+
+  function deviceIconSvg(deviceName: string) {
+    return typeIconSvg(devices.find((d) => d.name === deviceName)?.type);
+  }
+
+  function typeIconSvg(type?: string) {
+    if (!type) return "";
+    const t = typeList.find((x) => x.name === type) as { icon?: string; auto_icon?: string } | undefined;
+    const key = t?.icon || t?.auto_icon || "generic";
+    return iconList.find((i) => i.key === key)?.svg.replace("<svg ", '<svg width="28" height="28" ') ?? "";
+  }
 
   async function handleAddType(name: string) {
     try {
@@ -189,6 +247,18 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
     }
   }
 
+  async function handleRenameType(t: { id: number; name: string }, name: string) {
+    try {
+      const updated = await renameDeviceType(t.id, name);
+      setTypeList((cur) => cur.map((x) => (x.id === t.id ? updated : x)));
+      setTypeOptions((cur) => cur.map((x) => (x === t.name ? updated.name : x)));
+      setDevices((cur) => cur.map((d) => (d.type === t.name ? { ...d, type: updated.name } : d)));
+      setSubmitError(null);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message.replace(/^API \d+: /, "") : "Failed to rename type");
+    }
+  }
+
   async function handleDeleteType(t: { id: number; name: string }) {
     if (devices.some((d) => d.type === t.name)) {
       setSubmitError(`Type '${t.name}' is used by a device in this form. Change that device first.`);
@@ -212,7 +282,7 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
   // Connection endpoints must match a device name exactly, as sent in the payload.
   const deviceNames = Array.from(
     new Set(devices.map((d) => d.name).filter((n) => n.trim()))
-  );
+  ).sort(byText);
 
   function validate() {
     return {
@@ -229,7 +299,7 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
       outletsUsed: Number.isFinite(outletsUsed) && outletsUsed >= 0,
       chamberCount: !chamber || (Number.isInteger(chamberCount) && chamberCount >= 1 && chamberCount <= 50),
       devices: devices.length > 0,
-      deviceNames: devices.every((device) => device.name.trim().length > 0),
+      deviceNames: devices.every((device) => device.name.trim().length > 0 || !isApType(device.type)),
     };
   }
 
@@ -244,12 +314,62 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
     isValid.chamberCount &&
     isValid.connections;
 
+  function apIdsFromDevices() {
+    const ids = devices.filter((d) => isApType(d.type)).map((d) => findAp(d)?.id);
+    return Array.from(new Set(ids.filter((x): x is number => x !== undefined)));
+  }
+
+  // Several APs can share a name, so the device's IP decides which one is meant.
+  function findAp(d: { name: string; net_interfaces: { ip: string }[] }) {
+    const same = allAps.filter((a) => a.name === d.name);
+    return same.find((a) => a.ip && d.net_interfaces.some((n) => n.ip.trim() === a.ip)) ?? same[0];
+  }
+
+  function pickAp(index: number, apId: string) {
+    const ap = allAps.find((a) => String(a.id) === apId);
+    const apName = ap?.name ?? "";
+    markEdited(devices[index]?.uid);
+    setDevices((cur) => cur.map((d, i) => {
+      if (i !== index) return d;
+      const prev = findAp(d);
+      const hasIface = d.net_interfaces.some((n) => n.ip.trim() && n.ip.trim() !== prev?.ip);
+      return {
+        ...d,
+        name: apName,
+        net_interfaces: ap?.ip && !hasIface ? [{ name: "", type: "Ethernet", ip: ap.ip, mac: "" }] : d.net_interfaces,
+        notes: d.notes || [ap?.model, ap?.wifi_standard].filter(Boolean).join(", "),
+      };
+    }));
+  }
+
+  // Unnamed devices get their type as the name, numbered when that name is already taken.
+  function fillNames(list: DeviceEntry[]) {
+    const used = new Set(list.map((d) => d.name.trim()).filter(Boolean));
+    return list.map((d) => {
+      if (d.name.trim() || isApType(d.type)) return d;
+      let name = d.type;
+      for (let n = 2; used.has(name); n++) name = `${d.type} ${n}`;
+      used.add(name);
+      return { ...d, name };
+    });
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitAttempted(true);
     setSubmitError(null);
 
     if (!canSubmit || isSubmitting) return;
+    const named = fillNames(devices);
+    setDevices(named);
+
+    const cablePowerSource = (devName: string) => {
+      for (const c of connections) {
+        if (c.powers === "from" && c.to_device === devName) return c.from_device;
+        if (c.powers === "to" && c.from_device === devName) return c.to_device;
+      }
+      return "";
+    };
 
     const payload = {
       name,
@@ -257,14 +377,19 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
       chamber,
       outlets_used: outletsUsed,
       chamber_count: chamber ? chamberCount : 0,
-      devices: devices.map(({ uid: _uid, ...d }) => ({
+      criticality,
+      devices: named.map(({ uid: _uid, ...d }) => ({
         ...d,
         quantity: 1,
+        pfa_ip: d.type.trim().toUpperCase() === "PC" && d.net_interfaces.some((n) => n.ip.trim() === d.pfa_ip) ? d.pfa_ip : "",
         location: locationOptions.includes(d.location) ? d.location : DESKTOP,
         net_interfaces: d.net_interfaces
           .filter((n) => n.name.trim() || n.ip.trim() || n.mac.trim())
           .map((n) => ({ name: n.name.trim(), type: n.type, ip: n.ip.trim(), mac: n.mac.trim() })),
-        power_from: d.power_from === OUTLET ? OUTLET : devices.find((o) => o.uid === d.power_from && o.name.trim())?.name ?? "",
+        power_from:
+          (d.power_from === OUTLET ? OUTLET : named.find((o) => o.uid === d.power_from && o.name.trim())?.name) ||
+          cablePowerSource(d.name) ||
+          "",
       })),
       connections: connections.map((c) => ({
         from_device: c.from_device,
@@ -273,6 +398,8 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
         to_port: c.to_port.trim() || null,
         cable_type: c.cable_type.trim() || null,
         notes: c.notes.trim() || null,
+        powers: c.from_device && c.to_device ? c.powers : "",
+        radio_mode: c.link === "radio" ? c.radio_mode || "ota" : "",
       })),
     };
 
@@ -280,12 +407,15 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
       setIsSubmitting(true);
       if (mode === "create") {
         const created = await createSetup(payload);
+        if (apIdsFromDevices().length) await setSetupAccessPoints(created.id, apIdsFromDevices());
         window.localStorage.setItem("setup_resource_manager_new_setup", String(created.id));
         router.push("/");
         router.refresh();
       } else if (setupId) {
         await updateSetup(setupId, payload);
+        await setSetupAccessPoints(setupId, apIdsFromDevices());
         router.push(`/setups/${setupId}`);
+        router.refresh();
       }
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Failed to save setup");
@@ -345,11 +475,34 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
   }
 
   function updateConnection(index: number, key: keyof ConnectionEntry, value: string) {
+    const uid = connections[index]?.uid;
+    if (uid) {
+      setFreshConnUids((cur) => {
+        if (!cur.has(uid)) return cur;
+        const next = new Set(cur);
+        next.delete(uid);
+        return next;
+      });
+    }
     setConnections((current) => current.map((c, i) => (i === index ? { ...c, [key]: value } : c)));
   }
 
   function addConnection() {
-    setConnections((current) => [...current, emptyConnection()]);
+    const conn = emptyConnection();
+    setConnections((current) => [...current, conn]);
+    setFreshConnUids((cur) => new Set(cur).add(conn.uid));
+    setScrollToConn(conn.uid);
+  }
+
+  function setLinkKind(index: number, link: "wired" | "radio") {
+    setConnections((cur) => cur.map((c, i) => (i !== index ? c : {
+      ...c,
+      link,
+      from_port: c.from_port && isRadio(c.from_port) !== (link === "radio") ? "" : c.from_port,
+      to_port: c.to_port && isRadio(c.to_port) !== (link === "radio") ? "" : c.to_port,
+      powers: link === "radio" ? "" : c.powers,
+      radio_mode: link === "radio" ? c.radio_mode || "ota" : "",
+    })));
   }
 
   function removeConnection(index: number) {
@@ -381,6 +534,27 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
           className={showError("description") && !isValid.description ? "field-error" : ""}
         />
       </label>
+
+      <div className="card" style={{ margin: "16px 0" }}>
+        <b>Criticality: how important is it that this setup works without failures?</b>
+        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+          {CRITICALITY.map((c) => (
+            <button
+              key={c.level}
+              type="button"
+              onClick={() => setCriticality(c.level)}
+              style={{
+                background: criticality === c.level ? c.color : "transparent",
+                color: criticality === c.level ? "#fff" : c.color,
+                border: `2px solid ${c.color}`,
+                fontWeight: 700,
+              }}
+            >
+              {c.level} · {c.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div
         style={{
@@ -436,6 +610,7 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
           icons={iconList}
           autoIcon={(t) => (t as { auto_icon?: string }).auto_icon ?? "generic"}
           onIconChange={handleTypeIcon}
+          onRename={handleRenameType}
         />
       )}
 
@@ -457,19 +632,41 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
             >
               <label>
                 Device type
-                <select
-                  value={device.type}
-                  onChange={(e) => updateDevice(setDevices, index, "type", e.target.value)}
-                >
-                  {(typeOptions.includes(device.type) ? typeOptions : [...typeOptions, device.type]).map((type) => (
-                    <option key={type} value={type}>{type}</option>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span
+                    style={{ width: 36, height: 36, flex: "none", background: "#fff", borderRadius: 6, border: "1px solid var(--border, #d4d4d8)", display: "grid", placeItems: "center" }}
+                    dangerouslySetInnerHTML={{ __html: typeIconSvg(device.type) }}
+                  />
+                  <select
+                    style={{ flex: 1 }}
+                    value={device.type}
+                    onChange={(e) => updateDevice(setDevices, index, "type", e.target.value)}
+                  >
+                    {(typeOptions.includes(device.type) ? [...typeOptions] : [...typeOptions, device.type]).sort(byText).map((type) => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </div>
+              </label>
+              {isApType(device.type) ? (
+              <label>
+                Access point (from registered list)
+                <select value={String(findAp(device)?.id ?? (device.name || ""))} onChange={(e) => pickAp(index, e.target.value)} className={showError(`device-name-${index}`) && !device.name.trim() ? "field-error" : ""}>
+                  <option value="">Select access point...</option>
+                  {[...allAps].sort(compareApIp).map((a) => (
+                    <option key={a.id} value={String(a.id)}>
+                      {a.ip ? `${a.ip} - ` : ""}{a.name}{a.model ? ` - ${a.model}` : ""}{a.setup_id && a.setup_id !== setupId ? ` [in ${a.setup_name}]` : ""}
+                    </option>
                   ))}
+                  {device.name && !allAps.some((a) => a.name === device.name) ? <option value={device.name}>{device.name}</option> : null}
                 </select>
               </label>
+              ) : (
               <label>
                 Device name
-                <input value={device.name} onChange={(e) => updateDevice(setDevices, index, "name", e.target.value)} className={showError(`device-name-${index}`) && !device.name.trim() ? "field-error" : ""} />
+                <input value={device.name} placeholder={`${device.type} (default)`} onChange={(e) => updateDevice(setDevices, index, "name", e.target.value)} onBlur={() => !device.name.trim() && setDevices((cur) => fillNames(cur))} />
               </label>
+              )}
               {chambersOn && (
               <label>
                 Location
@@ -491,8 +688,9 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
                 >
                   <option value="">Not specified</option>
                   <option value={OUTLET}>Wall outlet</option>
-                  {devices.map((o, oi) => (oi !== index ? (
-                    <option key={o.uid} value={o.uid}>{o.name.trim() || `Device ${oi + 1} (unnamed)`}{o.type ? ` (${o.type})` : ""}</option>
+                  {devices.map((o, oi) => ({ o, oi, label: o.name.trim() || `Device ${oi + 1} (unnamed)` }))
+                    .sort((x, y) => byText(x.label, y.label)).map(({ o, oi, label }) => (oi !== index ? (
+                    <option key={o.uid} value={o.uid}>{label}{o.type ? ` (${o.type})` : ""}</option>
                   ) : null))}
                 </select>
               </label>
@@ -517,11 +715,25 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
                   <button type="button" className="secondary" onClick={() => addNet(index)}>+ Add network interface</button>
                 </div>
               </div>
+              {device.type.trim().toUpperCase() === "PC" && (
+              <label>
+                PFA address (interface IP of the automation page)
+                  <select value={device.pfa_ip} onChange={(e) => updateDevice(setDevices, index, "pfa_ip", e.target.value)}>
+                    <option value="">No PFA on this device</option>
+                    {device.net_interfaces.filter((n) => n.ip.trim()).map((n, k) => (
+                      <option key={k} value={n.ip.trim()}>{n.ip.trim()}{n.name ? ` (${n.name})` : ""}</option>
+                    ))}
+                    {device.pfa_ip && !device.net_interfaces.some((n) => n.ip.trim() === device.pfa_ip) ? <option value={device.pfa_ip}>{device.pfa_ip}</option> : null}
+                  </select>
+              </label>
+              )}
               <label>
                 Notes
                 <textarea value={device.notes} onChange={(e) => updateDevice(setDevices, index, "notes", e.target.value)} />
               </label>
-              <button type="button" className="secondary" onClick={() => removeDevice(setDevices, index)}>Remove device</button>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border, #d4d4d8)" }}>
+                <button type="button" className="secondary" style={{ background: "#dc2626", color: "#fff", borderColor: "#b91c1c" }} onClick={() => removeDevice(setDevices, index)}>Remove device</button>
+              </div>
             </div>
           ))}
         </div>
@@ -551,13 +763,42 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
               { label: "To", deviceKey: "to_device", portKey: "to_port" },
             ];
             return (
-              <div key={index} className="card" style={{ background: "var(--surface-alt)" }}>
+              <div
+                key={c.uid}
+                id={`conn-card-${c.uid}`}
+                className="card"
+                style={freshConnUids.has(c.uid)
+                  ? { background: "rgba(37, 99, 235, 0.18)", border: "2px solid #2563eb" }
+                  : { background: "var(--surface-alt)" }}
+              >
+                <label>
+                  Link type
+                  <select value={c.link} onChange={(e) => setLinkKind(index, e.target.value as "wired" | "radio")}>
+                    <option value="wired">Wired (Ethernet, USB, wires...)</option>
+                    <option value="radio">Radio (Wi-Fi, BLE, Matter...)</option>
+                  </select>
+                </label>
+                {c.link === "radio" ? (
+                  <label>
+                    Radio mode
+                    <select value={c.radio_mode || "ota"} onChange={(e) => updateConnection(index, "radio_mode", e.target.value)}>
+                      <option value="ota">Over the air</option>
+                      <option value="conducted">Conducted (antenna ports connected by cable)</option>
+                      <option value="hybrid">Hybrid (cable to a remote antenna in another chamber)</option>
+                    </select>
+                  </label>
+                ) : null}
                 {rows.map((row) => {
                   const deviceInvalid = showError(`conn-${index}`) && !deviceNames.includes(c[row.deviceKey]);
                   const portInvalid = showError(`conn-${index}`) && !c[row.portKey].trim();
                   return (
                     <div key={row.label} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
                       <b style={{ width: 44, paddingTop: 14 }}>{row.label}</b>
+                      <span
+                        title={devices.find((d) => d.name === c[row.deviceKey])?.type ?? ""}
+                        style={{ width: 36, height: 36, flex: "none", marginTop: 4, background: "#fff", borderRadius: 6, border: "1px solid var(--border, #d4d4d8)", display: "grid", placeItems: "center" }}
+                        dangerouslySetInnerHTML={{ __html: deviceIconSvg(c[row.deviceKey]) }}
+                      />
                       <select
                         value={c[row.deviceKey]}
                         onChange={(e) => updateConnection(index, row.deviceKey, e.target.value)}
@@ -581,7 +822,7 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
                         {(c[row.portKey] && !interfaceList.some((x) => x.name === c[row.portKey])
                           ? [...interfaceList.map((x) => x.name), c[row.portKey]]
                           : interfaceList.map((x) => x.name)
-                        ).map((n) => (
+                        ).sort(byText).filter((n) => n === c[row.portKey] || isRadio(n) === (c.link === "radio")).map((n) => (
                           <option key={n} value={n}>{n}</option>
                         ))}
                       </select>
@@ -596,15 +837,28 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
                     onChange={(e) => updateConnection(index, "cable_type", e.target.value)}
                   />
                 </label>
+                {c.link === "wired" && c.from_device && c.to_device && c.from_device !== c.to_device ? (
+                  <label>
+                    Power over this cable
+                    <select value={c.powers} onChange={(e) => updateConnection(index, "powers", e.target.value)}>
+                      <option value="">Data only</option>
+                      <option value="from">{c.from_device} powers {c.to_device}</option>
+                      <option value="to">{c.to_device} powers {c.from_device}</option>
+                    </select>
+                  </label>
+                ) : null}
                 {c.from_device && c.from_device === c.to_device ? (
                   <p style={{ color: "#dc2626", marginTop: 0 }}>From and To must be different devices.</p>
                 ) : null}
-                <button type="button" className="secondary" onClick={() => removeConnection(index)}>Remove connection</button>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border, #d4d4d8)" }}>
+                <button type="button" className="secondary" style={{ background: "#dc2626", color: "#fff", borderColor: "#b91c1c" }} onClick={() => removeConnection(index)}>Remove connection</button>
+              </div>
               </div>
             );
           })}
           {connections.length === 0 ? <p>No connections yet.</p> : null}
         </div>
+        {connections.length > 0 ? <button type="button" onClick={addConnection}>+ Add connection</button> : null}
       </div>
 
       {submitError ? <div className="field-error" style={{ padding: 12, marginBottom: 12 }}>{submitError}</div> : null}

@@ -32,6 +32,11 @@ class AdminSetupRequest(BaseModel):
     password: str = Field(min_length=MIN_ADMIN_PASSWORD_LENGTH, max_length=256)
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=MIN_ADMIN_PASSWORD_LENGTH, max_length=256)
+
+
 class UserRead(BaseModel):
     username: str
     role: str
@@ -92,6 +97,10 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> models.
         )
         if session:
             return session.user
+    # No (valid) session: browse as the read-only guest; admin mode needs the admin password.
+    guest = db.query(models.User).filter(models.User.username == "guest", models.User.role == "guest").first()
+    if guest:
+        return guest
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 
@@ -130,6 +139,23 @@ def login(body: LoginRequest, response: Response, db: Session = Depends(get_db))
         raise HTTPException(status_code=401, detail="Invalid username or password")
     _start_session(db, response, user)
     return user
+
+
+@router.post("/change-password")
+def change_password(
+    body: ChangePasswordRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_admin),
+):
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    user.password_hash = hash_password(body.new_password)
+    # Drop every existing session of this user, then keep the current browser logged in.
+    db.query(models.AuthSession).filter(models.AuthSession.user_id == user.id).delete()
+    db.commit()
+    _start_session(db, response, user)
+    return {"ok": True}
 
 
 @router.post("/logout")
