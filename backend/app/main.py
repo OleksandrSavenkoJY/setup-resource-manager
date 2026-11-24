@@ -5,6 +5,7 @@ from fastapi import FastAPI, Depends, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, inspect, text
 from sqlalchemy.orm import Session, selectinload
+from . import secrets_box
 from .database import Base, SessionLocal, engine, get_db
 from . import models, schemas, crud, auth, aps
 from .auth import get_current_user, require_admin
@@ -49,6 +50,14 @@ with engine.begin() as _conn:
 if engine.dialect.name == "postgresql":
     with engine.begin() as _conn:
         _conn.execute(text("ALTER TABLE access_points ALTER COLUMN automation TYPE VARCHAR(20)"))
+        # Encrypted values are longer than the old 255-character column allows.
+        _conn.execute(text("ALTER TABLE access_points ALTER COLUMN password TYPE TEXT"))
+
+# Encrypt passwords that were stored as plain text before APP_SECRET_KEY was configured.
+with engine.begin() as _conn:
+    for _id, _pw in _conn.execute(text("SELECT id, password FROM access_points")).all():
+        if _pw and not _pw.startswith(secrets_box.PREFIX) and secrets_box.encrypt(_pw) != _pw:
+            _conn.execute(text("UPDATE access_points SET password = :p WHERE id = :i"), {"p": secrets_box.encrypt(_pw), "i": _id})
 
 DEFAULT_DEVICE_TYPES = ["PC", "Laptop", "Monitor", "UPS", "Board", "Chip", "Raspberry Pi", "Relay", "Antenna", "Attenuator", "3rd party AP"]
 

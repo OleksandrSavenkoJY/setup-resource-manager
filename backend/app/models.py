@@ -1,6 +1,7 @@
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, func
 from sqlalchemy.orm import relationship
 from .database import Base
+from .secrets_box import EncryptedText
 
 
 class Setup(Base):
@@ -32,9 +33,9 @@ class AccessPoint(Base):
     model = Column(String(255), nullable=False, default="", server_default="")
     wifi_standard = Column(String(50), nullable=False, default="", server_default="")
     ip = Column(String(64), nullable=False, default="", server_default="")
-    # Admin-only; stored as plain text because they have to be shown back to the team.
+    # Admin-only; the password is encrypted at rest (see secrets_box) because it is shown back to the team.
     username = Column(String(255), nullable=False, default="", server_default="")
-    password = Column(String(255), nullable=False, default="", server_default="")
+    password = Column(EncryptedText, nullable=False, default="", server_default="")
     automation = Column(String(20), nullable=False, default="", server_default="")  # "", "yes", "no", "in_progress"
     status = Column(String(20), nullable=False, default="", server_default="")  # "", "verified", "not_working"
     setup_id = Column(Integer, ForeignKey("setups.id", ondelete="SET NULL"), nullable=True, index=True)

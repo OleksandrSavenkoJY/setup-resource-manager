@@ -42,6 +42,7 @@ cp .env.example .env
 |---|---|
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Database name and credentials created on first start |
 | `DATABASE_URL` | Backend connection string, `postgresql+psycopg2://USER:PASSWORD@postgres:5432/DB`; user, password and DB must match the `POSTGRES_*` values |
+| `APP_SECRET_KEY` | Encrypts access point passwords in the database. Use a long random value (`openssl rand -hex 32`) and keep it: without the key those passwords cannot be read back. Plain-text values saved earlier are encrypted on the next start. |
 | `BACKEND_HOST`, `BACKEND_PORT` | Where the backend listens inside the container (keep `0.0.0.0` / `8000`) |
 | `NEXT_PUBLIC_API_URL` | Not used by the browser (it goes through the `/api` proxy); can be left as is |
 

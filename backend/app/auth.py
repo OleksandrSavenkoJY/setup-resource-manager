@@ -131,12 +131,32 @@ def setup_admin(body: AdminSetupRequest, response: Response, db: Session = Depen
     return user
 
 
+MAX_FAILURES = 5
+FAILURE_WINDOW = timedelta(minutes=10)
+LOCKOUT = timedelta(minutes=5)
+_failures: dict[str, list] = {}  # username -> failure times; in memory, so a restart clears it
+
+
+def _check_lockout(username: str) -> None:
+    now = _now()
+    times = [t for t in _failures.get(username, []) if now - t < FAILURE_WINDOW]
+    _failures[username] = times
+    if len(times) >= MAX_FAILURES and now - times[-1] < LOCKOUT:
+        wait = int((LOCKOUT - (now - times[-1])).total_seconds()) + 1
+        raise HTTPException(status_code=429, detail=f"Too many failed attempts. Try again in {wait} s.",
+                            headers={"Retry-After": str(wait)})
+
+
 @router.post("/login", response_model=UserRead)
 def login(body: LoginRequest, response: Response, db: Session = Depends(get_db)):
+    key = body.username.strip().lower()
+    _check_lockout(key)
     user = db.query(models.User).filter(models.User.username == body.username).first()
     valid = verify_password(body.password, user.password_hash if user else _DUMMY_HASH)
     if not user or not valid:
+        _failures.setdefault(key, []).append(_now())
         raise HTTPException(status_code=401, detail="Invalid username or password")
+    _failures.pop(key, None)
     _start_session(db, response, user)
     return user
 
