@@ -50,9 +50,9 @@ if engine.dialect.name == "postgresql":
     with engine.begin() as _conn:
         _conn.execute(text("ALTER TABLE access_points ALTER COLUMN automation TYPE VARCHAR(20)"))
 
-DEFAULT_DEVICE_TYPES = ["PC", "Laptop", "Monitor", "UPS", "Board", "Board 2", "Chip", "Chip 2", "Chip 3", "Antenna", "Attenuator", "3rd party AP"]
+DEFAULT_DEVICE_TYPES = ["PC", "Laptop", "Monitor", "UPS", "Board", "Chip", "Raspberry Pi", "Relay", "Antenna", "Attenuator", "3rd party AP"]
 
-DEFAULT_INTERFACES = ["Ethernet", "USB", "HDMI", "DisplayPort", "Power", "Serial", "CAN", "GPIO", "Wi-Fi", "BLE", "Bluetooth", "Matter", "Thread", "Zigbee", "Other"]
+DEFAULT_INTERFACES = ["Ethernet", "USB", "HDMI", "DisplayPort", "Power", "UART", "SPI", "I2C", "Serial", "CAN", "GPIO", "Wi-Fi", "BLE", "Bluetooth", "Matter", "Thread", "Zigbee", "Other"]
 
 with SessionLocal() as _db:
     auth.ensure_guest(_db)

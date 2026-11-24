@@ -66,7 +66,7 @@ type Props = {
   initialData?: any;
 };
 
-const DEFAULT_TYPES = ["PC", "Laptop", "Monitor", "UPS", "Board", "Board 2", "Chip", "Chip 2", "Chip 3"];
+const DEFAULT_TYPES = ["PC", "Laptop", "Monitor", "UPS", "Board", "Chip", "Raspberry Pi", "Relay"];
 const DESKTOP = "Desktop";
 
 

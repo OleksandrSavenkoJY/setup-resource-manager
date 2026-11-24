@@ -77,7 +77,7 @@ ICON_RULES = [
     (r"windows|^win\d*$", "pc_windows"),
     (r"linux|ubuntu|debian", "pc_linux"),
     (r"^ek-|\bevk|-evk|\bboard\b|\bevk\b|\bfpb\b|devkit|dev kit|pcb", "board"),
-    (r"^ra\d|^rrq|^rtk|^rza|^rx\d|^rl78|^r7|chip|\bsoc\b|\bmcu\b|\bic\b|module|\bcpu\b", "chip"),
+    (r"chip|\bsoc\b|\bmcu\b|\bic\b|module|\bcpu\b", "chip"),
     (r"laptop|notebook", "laptop"),
     (r"monitor|display|screen|\btv\b", "monitor"),
     (r"\bups\b|battery|power supply|\bpsu\b", "ups"),

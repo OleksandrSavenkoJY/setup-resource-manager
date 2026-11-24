@@ -41,7 +41,7 @@ Diagram style rules (follow them strictly):
 2. Every device is an icon only, with no box around it. The label sits directly under the icon:
    the device name on the first line and "type · location" on the second.
    Pick the icon from the device type: PC = desktop computer (Linux/Windows logo on the screen if the OS is known),
-   Laptop = laptop, Monitor = monitor, UPS = battery/power box, RA* = vendor board, RRQ* = vendor chip or module,
+   Laptop = laptop, Monitor = monitor, UPS = battery/power box, Board = development board, Chip = chip or module,
    switch/router/AP = network equipment, Internet/cloud = cloud, antenna = antenna mast. Use a neutral cube for unknown types.
    Do not use manufacturer logos.
 3. The main device (the one with the most connections, usually the management PC) gets a larger icon and sits near the centre.
