@@ -26,7 +26,7 @@ export default function HomePage() {
   return (
     <main>
       <h1>Setup Resource Manager</h1>
-      <p>List of setups</p>
+      <p>List of setups ({setups.length})</p>
 
       <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
         {me?.role === "admin" && (
@@ -46,7 +46,7 @@ export default function HomePage() {
       <table>
         <thead>
           <tr>
-            <th>ID</th>
+            <th>#</th>
             <th>Name</th>
             <th>Chamber</th>
             <th>Criticality</th>
@@ -54,11 +54,11 @@ export default function HomePage() {
           </tr>
         </thead>
         <tbody>
-          {setups.map((setup: any) => {
+          {setups.map((setup: any, index: number) => {
             const isNew = String(setup.id) === newSetupId;
             return (
               <tr key={setup.id}>
-                <td>{setup.id}</td>
+                <td>{index + 1}</td>
                 <td>
                   <Link href={`/setups/${setup.id}`}>{setup.name}</Link> {isNew ? <span style={{ color: "#16a34a", fontWeight: 700 }}>(New)</span> : null}
                 </td>
