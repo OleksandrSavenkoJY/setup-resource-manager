@@ -1567,6 +1567,13 @@ def _prepare_once(setup, hide_feeds=False):
         else:
             stale += 1
     pos, width, height = shifted, max(w, 1), max(h, 1)
+    manual = {n: p for n, p in (getattr(setup, "manual_positions", None) or {}).items() if n in pos}
+    if manual:
+        # Hand-placed devices keep their spot; lines are routed again around them.
+        pos = {**pos, **manual}
+        width = max(width, int(max(x for x, _ in pos.values()) + BOX_W + MARGIN + 40))
+        height = max(height, int(max(y for _, y in pos.values()) + BOX_H + MARGIN + 40))
+        edges = _route(all_conns, pos, width, height, base_groups)
     frames = _frames(base_groups, {n: p for n, p in pos.items() if n not in in_att})
     where = {m: re.sub(r"(?i)chamber\s*", "Ch", k) for k, v in base_groups.items() for m in v}
     for ch in chains:

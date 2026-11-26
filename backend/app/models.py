@@ -145,6 +145,8 @@ class SetupDiagram(Base):
     setup_id = Column(Integer, ForeignKey("setups.id", ondelete="CASCADE"), primary_key=True)
     svg = Column(Text, nullable=False)
     drawio_xml = Column(Text, nullable=False)
+    positions = Column(JSON, nullable=False, default=dict)  # devices placed by hand: {name: [x, y]}
+    layout = Column(JSON, nullable=True)  # what the editor needs: size and the position of every device
     generated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
 

@@ -64,7 +64,12 @@ export async function cloneSetup(id: number) {
   });
 }
 
-export type Diagram = { svg: string; generated_at: string; drawio_xml?: string };
+export type DiagramLayout = {
+  width: number; height: number; box_w: number; box_h: number; nodes: Record<string, [number, number]>;
+};
+export type Diagram = {
+  svg: string; generated_at: string; drawio_xml?: string; layout?: DiagramLayout | null; manual?: string[];
+};
 
 export async function generateDiagram(id: number): Promise<Diagram> {
   return request(`/setups/${id}/diagram`, {
@@ -323,3 +328,13 @@ export type BulkRequest = {
 };
 export const bulkAction = (body: BulkRequest): Promise<{ done: number; missing: number[]; trash_ids: number[] }> =>
   request("/setups/bulk", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+export const saveDiagramLayout = (id: number, positions: Record<string, [number, number]>): Promise<Diagram> =>
+  request(`/setups/${id}/diagram/layout`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ positions }),
+  });
+
+export const resetDiagramLayout = (id: number): Promise<Diagram> =>
+  request(`/setups/${id}/diagram/layout`, { method: "DELETE" });

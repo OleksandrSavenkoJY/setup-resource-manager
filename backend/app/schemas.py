@@ -1,7 +1,8 @@
 import ipaddress
 import re
 from pydantic import model_validator, BaseModel, Field, field_validator
-from typing import Literal, Optional, List
+import math
+from typing import Dict, Literal, Optional, List
 from datetime import datetime
 
 
@@ -174,6 +175,18 @@ class UsageUpdate(BaseModel):
             except ValueError:
                 raise ValueError("used_until must be a date in YYYY-MM-DD format")
         return self
+
+
+class DiagramLayoutUpdate(BaseModel):
+    positions: Dict[str, List[float]] = Field(..., max_length=500)
+
+    @field_validator("positions")
+    @classmethod
+    def _positions(cls, v):
+        for name, xy in v.items():
+            if len(xy) != 2 or not all(math.isfinite(c) and 0 <= c <= 20000 for c in xy):
+                raise ValueError(f"Bad position for {name}")
+        return {n: [float(xy[0]), float(xy[1])] for n, xy in v.items()}
 
 
 class BulkAction(BaseModel):

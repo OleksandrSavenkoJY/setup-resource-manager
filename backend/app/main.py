@@ -12,7 +12,7 @@ from . import models, schemas, crud, auth, aps, trash
 from .auth import get_current_user, require_admin
 from .prompt import generate_prompt
 from .netdiagram import build_network_svg
-from .diagram import ICON_LABELS, LAYOUT_VERSION, _prepare, build_drawio, build_svg, icon_catalog, icon_kind
+from .diagram import BOX_H, BOX_W, ICON_LABELS, LAYOUT_VERSION, _prepare, build_drawio, build_svg, icon_catalog, icon_kind
 from . import export as exporter
 
 Base.metadata.create_all(bind=engine)
@@ -38,6 +38,11 @@ with engine.begin() as _conn:
     _conn.execute(text("UPDATE setups SET criticality = 4 WHERE criticality > 4"))
 
 with engine.begin() as _conn:
+    _diagram_cols = {c["name"] for c in inspect(_conn).get_columns("setup_diagrams")}
+    if "positions" not in _diagram_cols:
+        _conn.execute(text("ALTER TABLE setup_diagrams ADD COLUMN positions JSON NOT NULL DEFAULT '{}'"))
+    if "layout" not in _diagram_cols:
+        _conn.execute(text("ALTER TABLE setup_diagrams ADD COLUMN layout JSON"))
     if "icon" not in {c["name"] for c in inspect(_conn).get_columns("device_types")}:
         _conn.execute(text("ALTER TABLE device_types ADD COLUMN icon VARCHAR(30) NOT NULL DEFAULT ''"))
     _setup_cols = {c["name"] for c in inspect(_conn).get_columns("setups")}
@@ -393,9 +398,10 @@ def put_location(setup_id: int, loc: schemas.LocationUpdate, db: Session = Depen
 
 
 def _diagram_payload(diagram: models.SetupDiagram, user: models.User):
-    payload = {"svg": diagram.svg, "generated_at": diagram.generated_at.isoformat()}
+    payload = {"svg": diagram.svg, "generated_at": diagram.generated_at.isoformat(), "layout": diagram.layout}
     if user.role == "admin":
         payload["drawio_xml"] = diagram.drawio_xml
+        payload["manual"] = sorted((diagram.positions or {}).keys())
     return payload
 
 
@@ -410,9 +416,15 @@ def _regenerate(db: Session, setup_id: int):
         raise HTTPException(status_code=404, detail="Setup not found")
     _attach_icons(db, setup)
     diagram = db.get(models.SetupDiagram, setup_id) or models.SetupDiagram(setup_id=setup_id)
+    setup.manual_positions = diagram.positions or {}
     prepared = _prepare(setup)
     diagram.svg = build_svg(setup, prepared)
     diagram.drawio_xml = build_drawio(setup, prepared)
+    nodes, pos, width, height = prepared[0], prepared[1], prepared[2], prepared[3]
+    diagram.layout = {
+        "width": width, "height": height, "box_w": BOX_W, "box_h": BOX_H,
+        "nodes": {n: [round(pos[n][0], 1), round(pos[n][1], 1)] for n in nodes if n in pos},
+    }
     db.add(diagram)
     db.commit()
     db.refresh(diagram)
@@ -428,7 +440,7 @@ def get_diagram(
     diagram = db.get(models.SetupDiagram, setup_id)
     if not diagram:
         raise HTTPException(status_code=404, detail="Diagram not generated yet")
-    if f'data-layout="{LAYOUT_VERSION}"' not in diagram.svg[:600]:
+    if f'data-layout="{LAYOUT_VERSION}"' not in diagram.svg[:600] or diagram.layout is None:
         diagram = _regenerate(db, setup_id)  # stored by an older layout version
     return _diagram_payload(diagram, user)
 
@@ -439,6 +451,37 @@ def generate_diagram(
     db: Session = Depends(get_db),
     user: models.User = Depends(require_admin),
 ):
+    return _diagram_payload(_regenerate(db, setup_id), user)
+
+
+@app.put("/setups/{setup_id}/diagram/layout")
+def save_diagram_layout(
+    setup_id: int,
+    body: schemas.DiagramLayoutUpdate,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_admin),
+):
+    """Stores hand-placed device positions and redraws the schema around them."""
+    diagram = _current_diagram(db, setup_id)
+    known = set((diagram.layout or {}).get("nodes", {}))
+    unknown = [n for n in body.positions if n not in known]
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"Unknown devices: {', '.join(unknown)}")
+    diagram.positions = {**(diagram.positions or {}), **body.positions}
+    db.commit()
+    return _diagram_payload(_regenerate(db, setup_id), user)
+
+
+@app.delete("/setups/{setup_id}/diagram/layout")
+def reset_diagram_layout(
+    setup_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(require_admin),
+):
+    """Forgets hand-placed positions; the next layout is automatic again."""
+    diagram = _current_diagram(db, setup_id)
+    diagram.positions = {}
+    db.commit()
     return _diagram_payload(_regenerate(db, setup_id), user)
 
 

@@ -65,6 +65,8 @@ docker compose up -d --build
 Data stays in the `postgres_data` volume. New columns are added automatically on startup.
 Stored schemas are regenerated automatically when the layout version changes.
 
+Admins can click **Edit layout** on a setup's schema to drag devices; lines are redrawn on save. Regenerate keeps hand-placed devices; **Reset to auto layout** discards them.
+
 ### Optional environment variables (backend)
 - `SESSION_TTL_HOURS` — session lifetime, default 12.
 - `COOKIE_SECURE=true` — set when served over HTTPS.

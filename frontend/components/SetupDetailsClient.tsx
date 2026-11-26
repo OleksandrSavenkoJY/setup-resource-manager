@@ -7,9 +7,10 @@ import ExportButton from "@/components/ExportButton";
 import Badge, { BADGE_COLORS } from "@/components/Badge";
 import CriticalityBadge from "@/components/Criticality";
 import ZoomableImage from "@/components/ZoomableImage";
+import DiagramEditor from "@/components/DiagramEditor";
 import OfficeMapView from "@/components/OfficeMapView";
 import Linkify from "@/components/Linkify";
-import { cloneSetup, deletePhoto, deleteSetup, fetchMapUrl, fetchNetworkSvg, fetchPhotoUrl, generateDiagram, restoreFromTrash, setSetupLocation, updateUsage, uploadPhoto, type Diagram } from "@/lib/api";
+import { cloneSetup, deletePhoto, deleteSetup, fetchMapUrl, fetchNetworkSvg, fetchPhotoUrl, generateDiagram, resetDiagramLayout, restoreFromTrash, saveDiagramLayout, setSetupLocation, updateUsage, uploadPhoto, type Diagram } from "@/lib/api";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 import { useUi } from "@/components/UiProvider";
 
@@ -110,6 +111,22 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
       setError(err instanceof Error ? err.message : "Failed to generate diagram");
     } finally {
       setIsGenerating(false);
+    }
+  }
+
+  const [editing, setEditing] = useState(false);
+  const [layoutBusy, setLayoutBusy] = useState(false);
+
+  async function runLayout(action: () => Promise<Diagram>, done: string) {
+    setLayoutBusy(true);
+    try {
+      setDiagram(await action());
+      setEditing(false);
+      toast(done);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Failed to update the layout", { kind: "error" });
+    } finally {
+      setLayoutBusy(false);
     }
   }
 
@@ -326,10 +343,23 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
           />
         ) : diagram ? (
           <>
-            <ZoomableImage alt="Setup schema" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(diagram.svg)}`} />
-            <p style={{ fontSize: 12, opacity: 0.7 }}>
-              Generated {new Date(diagram.generated_at + "Z").toLocaleString()}
-            </p>
+            {editing && diagram.layout ? (
+              <DiagramEditor
+                diagram={diagram}
+                busy={layoutBusy}
+                onSave={(changed) => runLayout(() => saveDiagramLayout(setup.id, changed), "Layout saved")}
+                onReset={() => runLayout(() => resetDiagramLayout(setup.id), "Automatic layout restored")}
+                onCancel={() => setEditing(false)}
+              />
+            ) : (
+              <>
+                <ZoomableImage alt="Setup schema" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(diagram.svg)}`} />
+                <p style={{ fontSize: 12, opacity: 0.7 }}>
+                  Generated {new Date(diagram.generated_at + "Z").toLocaleString()}
+                  {diagram.manual?.length ? " · " + diagram.manual.length + " device(s) placed by hand" : ""}
+                </p>
+              </>
+            )}
           </>
         ) : (
           <p>No photo or generated schema yet.</p>
@@ -348,6 +378,9 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
             <button type="button" disabled={isGenerating} onClick={handleGenerate}>
               {isGenerating ? "Generating..." : diagram ? "Regenerate schema" : "Generate schema"}
             </button>
+            {diagram?.layout && !editing && view === "generated" ? (
+              <button type="button" className="secondary" onClick={() => setEditing(true)}>✥ Edit layout</button>
+            ) : null}
             {diagram?.drawio_xml ? (
               <button type="button" className="secondary" onClick={() => handleDownload()}>
                 Download .drawio
