@@ -12,7 +12,8 @@ const SCOPES = [
   { value: "full", label: "Setups + devices + connections + schema image" },
 ];
 
-const row = { display: "flex", gap: 8, alignItems: "center" } as const;
+const row = { display: "flex", gap: 8, alignItems: "center", margin: 0 } as const;
+const box = { width: 16, height: 16, margin: 0, padding: 0, flexShrink: 0 } as const;
 
 export default function ExportButton({ setups }: { setups: SetupRef[] }) {
   const me = useCurrentUser();
@@ -76,6 +77,7 @@ export default function ExportButton({ setups }: { setups: SetupRef[] }) {
                 <label style={{ ...row, fontWeight: 700 }}>
                   <input
                     type="checkbox"
+                    style={box}
                     checked={selected.length === setups.length && setups.length > 0}
                     onChange={(e) => setSelected(e.target.checked ? setups.map((s) => s.id) : [])}
                   />
@@ -84,7 +86,7 @@ export default function ExportButton({ setups }: { setups: SetupRef[] }) {
                 <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--border-soft)", borderRadius: 6, padding: 8, display: "grid", gap: 4 }}>
                   {setups.map((s) => (
                     <label key={s.id} style={row}>
-                      <input type="checkbox" checked={selected.includes(s.id)} onChange={() => toggleSetup(s.id)} />
+                      <input type="checkbox" style={box} checked={selected.includes(s.id)} onChange={() => toggleSetup(s.id)} />
                       {s.name}
                     </label>
                   ))}
@@ -95,28 +97,28 @@ export default function ExportButton({ setups }: { setups: SetupRef[] }) {
 
             <b>What to export</b>
             <label style={row}>
-              <input type="checkbox" checked={items.includes("data")} onChange={() => toggleItem("data")} />
+              <input type="checkbox" style={box} checked={items.includes("data")} onChange={() => toggleItem("data")} />
               Data (Excel .xlsx)
             </label>
             {items.includes("data") && (
-              <select value={scope} onChange={(e) => setScope(e.target.value)} style={{ marginLeft: 24 }}>
+              <select value={scope} onChange={(e) => setScope(e.target.value)} style={{ marginLeft: 24, marginTop: 0, marginBottom: 0, width: "auto" }}>
                 {SCOPES.map((s) => (
                   <option key={s.value} value={s.value}>{s.label}</option>
                 ))}
               </select>
             )}
             <label style={row}>
-              <input type="checkbox" checked={items.includes("png")} onChange={() => toggleItem("png")} />
+              <input type="checkbox" style={box} checked={items.includes("png")} onChange={() => toggleItem("png")} />
               Schema as image (.png)
             </label>
             {me?.role === "admin" && (
               <label style={row}>
-                <input type="checkbox" checked={items.includes("drawio")} onChange={() => toggleItem("drawio")} />
+                <input type="checkbox" style={box} checked={items.includes("drawio")} onChange={() => toggleItem("drawio")} />
                 Schema for draw.io (.drawio)
               </label>
             )}
             <label style={row}>
-              <input type="checkbox" checked={items.includes("photo")} onChange={() => toggleItem("photo")} />
+              <input type="checkbox" style={box} checked={items.includes("photo")} onChange={() => toggleItem("photo")} />
               Photo
             </label>
             <small style={{ opacity: 0.7 }}>
