@@ -120,13 +120,15 @@ export async function logout() {
   });
 }
 
-export async function downloadExport(setupId: number | null, params: Record<string, string>) {
-  const query = new URLSearchParams(params).toString();
-  const path = setupId ? `/export/setups/${setupId}` : "/export/setups";
-  const res = await fetch(`/api${path}?${query}`, { cache: "no-store" });
+export async function downloadExport(ids: number[], items: string[], scope: string) {
+  const query = new URLSearchParams({ items: items.join(","), scope });
+  if (ids.length) query.set("ids", ids.join(","));
+  const res = await fetch(`/api/export?${query}`, { cache: "no-store" });
   if (!res.ok) {
     if (res.status === 401) window.location.href = "/login";
-    throw new Error(`Export failed (${res.status})`);
+    let detail = "";
+    try { detail = (await res.json()).detail; } catch {}
+    throw new Error(typeof detail === "string" && detail ? detail : `Export failed (${res.status})`);
   }
   const match = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") || "");
   const url = URL.createObjectURL(await res.blob());

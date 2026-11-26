@@ -348,7 +348,7 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
       )}
 
       <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
-        <ExportButton setupId={setup.id} />
+        <ExportButton setupIds={[setup.id]} title="Export this setup" />
         {isAdmin && (
           <Link href={`/setups/${setup.id}/edit`}>
             <button>Edit</button>

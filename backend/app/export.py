@@ -1,6 +1,5 @@
 import io
 import re
-import zipfile
 
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image as XlImage
@@ -156,12 +155,4 @@ def build_single_xlsx(setup) -> bytes:
 
     out = io.BytesIO()
     wb.save(out)
-    return out.getvalue()
-
-
-def build_png_zip(setups) -> bytes:
-    out = io.BytesIO()
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
-        for s in setups:
-            zf.writestr(f"{s.id}_{safe_name(s.name)}.png", svg_to_png(build_svg(s)))
     return out.getvalue()

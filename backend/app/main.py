@@ -1,5 +1,6 @@
 import io
 import os
+import zipfile
 
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -424,30 +425,80 @@ def _load_setups_raw(db: Session, setup_id: int | None = None):
     return query.order_by(models.Setup.id).all()
 
 
-@app.get("/export/setups", dependencies=[Depends(get_current_user)])
-def export_all(
-    format: str = Query("xlsx", pattern="^(xlsx|png)$"),
+EXPORT_ITEMS = ("data", "png", "drawio", "photo")
+PHOTO_EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+
+
+def _current_diagram(db: Session, setup_id: int) -> models.SetupDiagram:
+    """The stored schema (what the UI shows); generated when missing or from an older layout."""
+    diagram = db.get(models.SetupDiagram, setup_id)
+    if not diagram or f'data-layout="{LAYOUT_VERSION}"' not in diagram.svg[:600]:
+        diagram = _regenerate(db, setup_id)
+    return diagram
+
+
+@app.get("/export")
+def export_bundle(
+    ids: str = Query("", description="Comma-separated setup ids; empty means all setups"),
+    items: str = Query("data", description="Comma-separated: data, png, drawio, photo"),
     scope: str = Query("full", pattern="^(setups|connections|full)$"),
     db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
 ):
+    wanted = [i for i in items.split(",") if i]
+    if not wanted or any(i not in EXPORT_ITEMS for i in wanted):
+        raise HTTPException(status_code=422, detail=f"items must be a comma-separated subset of {', '.join(EXPORT_ITEMS)}")
+    if "drawio" in wanted and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required to export draw.io files")
+    try:
+        wanted_ids = {int(i) for i in ids.split(",") if i.strip()}
+    except ValueError:
+        raise HTTPException(status_code=422, detail="ids must be integers")
+
     setups = _load_setups(db)
-    if format == "png":
-        return _download(exporter.build_png_zip(setups), "application/zip", "setup-schemas.zip")
-    return _download(exporter.build_xlsx(setups, scope), XLSX_MIME, f"setups-{scope}.xlsx")
+    if wanted_ids:
+        setups = [s for s in setups if s.id in wanted_ids]
+        if len(setups) != len(wanted_ids):
+            raise HTTPException(status_code=404, detail="Setup not found")
+    if not setups:
+        raise HTTPException(status_code=404, detail="No setups to export")
 
+    single = len(setups) == 1
+    files: list[tuple[str, bytes, str]] = []  # (name inside the archive, content, media type)
 
-@app.get("/export/setups/{setup_id}", dependencies=[Depends(get_current_user)])
-def export_one(
-    setup_id: int,
-    format: str = Query("xlsx", pattern="^(xlsx|png)$"),
-    db: Session = Depends(get_db),
-):
-    setup = _load_setups(db, setup_id)
-    name = exporter.safe_name(setup.name)
-    if format == "png":
-        png = exporter.svg_to_png(build_svg(setup))
-        return _download(png, "image/png", f"{setup.id}_{name}.png")
-    return _download(exporter.build_single_xlsx(setup), XLSX_MIME, f"{setup.id}_{name}.xlsx")
+    if "data" in wanted:
+        if single:
+            s = setups[0]
+            files.append((f"{s.id}_{exporter.safe_name(s.name)}.xlsx", exporter.build_single_xlsx(s), XLSX_MIME))
+        else:
+            files.append((f"setups-{scope}.xlsx", exporter.build_xlsx(setups, scope), XLSX_MIME))
+
+    for s in setups:
+        base = f"{s.id}_{exporter.safe_name(s.name)}"
+        place = (lambda suffix, ext: f"{base}_{suffix}.{ext}") if single else (lambda suffix, ext: f"{base}/{suffix}.{ext}")
+        if "png" in wanted or "drawio" in wanted:
+            diagram = _current_diagram(db, s.id)
+            if "png" in wanted:
+                files.append((place("schema", "png"), exporter.svg_to_png(diagram.svg), "image/png"))
+            if "drawio" in wanted:
+                files.append((place("schema", "drawio"), diagram.drawio_xml.encode("utf-8"), "application/vnd.jgraph.mxfile"))
+        if "photo" in wanted:
+            photo = db.get(models.SetupPhoto, s.id)
+            if photo:
+                files.append((place("photo", PHOTO_EXT.get(photo.content_type, "bin")), photo.data, photo.content_type))
+
+    if not files:
+        raise HTTPException(status_code=404, detail="Nothing to export (the selected setups have no photo)")
+    if len(files) == 1:
+        name, content, media = files[0]
+        return _download(content, media, name)
+
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, content, _ in files:
+            zf.writestr(name, content)
+    archive = "setups-export.zip" if not single else f"{setups[0].id}_{exporter.safe_name(setups[0].name)}.zip"
+    return _download(out.getvalue(), "application/zip", archive)
 
 
 def _type_payload(t: models.DeviceType) -> dict:
