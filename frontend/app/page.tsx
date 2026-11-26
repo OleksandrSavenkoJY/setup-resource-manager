@@ -211,7 +211,7 @@ export default function HomePage() {
   }
 
   const loading = setups === null;
-  const colCount = isAdmin ? 9 : 8;
+  const colCount = isAdmin ? 10 : 9;
 
   return (
     <main>
@@ -285,6 +285,7 @@ export default function HomePage() {
             {sortTh("criticality", "Criticality")}
             {sortTh("outlets", "Outlets")}
             {sortTh("status", "Status")}
+            <th>PFA</th>
             <th>Tags</th>
             <th>Actions</th>
           </tr>
@@ -326,6 +327,14 @@ export default function HomePage() {
                 <td><CriticalityBadge level={setup.criticality} /></td>
                 <td>{setup.outlets_used}</td>
                 <td><StatusBadge setup={setup} /></td>
+                <td>
+                  {(() => {
+                    const withPfa = (setup.devices ?? []).filter((d: any) => d.pfa_ip);
+                    const main = withPfa.find((d: any) => /mgmt/i.test(d.notes ?? "")) ?? withPfa[0];
+                    if (!main) return "-";
+                    return <a href={"http://" + main.pfa_ip + ":8080"} target="_blank" rel="noreferrer" title={main.name}>{main.pfa_ip}</a>;
+                  })()}
+                </td>
                 <td>
                   {(setup.tags || []).map((t: string) => (
                     <span key={t} className="tag" style={{ cursor: "pointer" }} onClick={() => setTag(t)}>{t}</span>
