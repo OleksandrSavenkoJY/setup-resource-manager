@@ -10,7 +10,6 @@ import { useCurrentUser } from "@/lib/useCurrentUser";
 export default function HomePage() {
   const me = useCurrentUser();
   const [setups, setSetups] = useState<any[]>([]);
-  const [selected, setSelected] = useState<number[]>([]);
   const [newSetupId, setNewSetupId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -41,23 +40,12 @@ export default function HomePage() {
         <Link href="/map">
           <button className="secondary">Office map</button>
         </Link>
-        <ExportButton
-          setupIds={selected}
-          label={selected.length ? `Export selected (${selected.length})` : "Export all"}
-        />
+        <ExportButton setups={setups} />
       </div>
 
       <table>
         <thead>
           <tr>
-            <th style={{ width: 28 }}>
-              <input
-                type="checkbox"
-                aria-label="Select all"
-                checked={setups.length > 0 && selected.length === setups.length}
-                onChange={(e) => setSelected(e.target.checked ? setups.map((s: any) => s.id) : [])}
-              />
-            </th>
             <th>#</th>
             <th>Name</th>
             <th>Chamber</th>
@@ -70,16 +58,6 @@ export default function HomePage() {
             const isNew = String(setup.id) === newSetupId;
             return (
               <tr key={setup.id}>
-                <td>
-                  <input
-                    type="checkbox"
-                    aria-label={`Select ${setup.name}`}
-                    checked={selected.includes(setup.id)}
-                    onChange={() =>
-                      setSelected((cur) => (cur.includes(setup.id) ? cur.filter((i) => i !== setup.id) : [...cur, setup.id]))
-                    }
-                  />
-                </td>
                 <td>{index + 1}</td>
                 <td>
                   <Link href={`/setups/${setup.id}`}>{setup.name}</Link> {isNew ? <span style={{ color: "#16a34a", fontWeight: 700 }}>(New)</span> : null}
