@@ -14,6 +14,7 @@ Inventory of test setups: devices, connections, power, network interfaces, photo
 - Generated schema (SVG / draw.io) with zoom, setup photo, export of any selection of setups (Excel data, schema PNG and draw.io, photo), AI prompt
 - Office map with setup markers
 - Tags, and a Free / In use by ... until ... status per setup (set by the admin on the details page)
+- Top navigation, sortable/searchable list (state kept in the URL), row actions and bulk actions (reserve, release, tags, delete, export), toasts with Undo, unsaved-changes warning and draft for new setups
 - Trash for deleted setups and automatic database backups
 - Login with roles: `admin` (create/edit/delete) and `guest` (read-only)
 

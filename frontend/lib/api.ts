@@ -312,3 +312,14 @@ export const updateUsage = (id: number, usage: { used_by: string; used_until: st
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(usage),
   });
+
+export type BulkRequest = {
+  ids: number[];
+  action: "add_tag" | "remove_tag" | "reserve" | "release" | "delete";
+  tag?: string;
+  used_by?: string;
+  used_until?: string;
+  usage_note?: string;
+};
+export const bulkAction = (body: BulkRequest): Promise<{ done: number; missing: number[]; trash_ids: number[] }> =>
+  request("/setups/bulk", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });

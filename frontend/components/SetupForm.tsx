@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useUi } from "@/components/UiProvider";
 import OptionManager, { IconDef } from "@/components/OptionManager";
 import { createDeviceType, createInterface, deleteDeviceType, deleteInterface, fetchInterfaces, createSetup, fetchDeviceTypes, fetchDeviceIcons, setDeviceTypeIcon, renameDeviceType, updateSetup, fetchAccessPoints, setSetupAccessPoints, type AccessPoint } from "@/lib/api";
 import { useCurrentUser } from "@/lib/useCurrentUser";
@@ -176,6 +176,77 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { toast } = useUi();
+
+  // Unsaved changes: warn before leaving; a draft of a new setup is kept in localStorage.
+  const DRAFT_KEY = "srm_setup_draft";
+  const dirtyRef = useRef(false);
+  const [dirty, setDirty] = useState(false);
+  const [draft, setDraft] = useState<any>(null);
+  const markDirty = () => {
+    dirtyRef.current = true;
+    setDirty(true);
+  };
+
+  useEffect(() => {
+    if (mode !== "create") return;
+    try {
+      const raw = window.localStorage.getItem(DRAFT_KEY);
+      if (raw) setDraft(JSON.parse(raw));
+    } catch {
+      window.localStorage.removeItem(DRAFT_KEY);
+    }
+  }, [mode]);
+
+  useEffect(() => {
+    const beforeUnload = (e: BeforeUnloadEvent) => {
+      if (!dirtyRef.current) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    // In-app links do not trigger beforeunload, so ask before following them.
+    const onClick = (e: MouseEvent) => {
+      if (!dirtyRef.current) return;
+      const a = (e.target as HTMLElement).closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!a || !a.getAttribute("href")?.startsWith("/")) return;
+      if (!window.confirm("You have unsaved changes. Leave this page?")) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    document.addEventListener("click", onClick, true);
+    return () => {
+      window.removeEventListener("beforeunload", beforeUnload);
+      document.removeEventListener("click", onClick, true);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (mode !== "create" || !dirty) return;
+    const timer = setTimeout(() => {
+      try {
+        window.localStorage.setItem(DRAFT_KEY, JSON.stringify({ name, description, chamber, tagsText, criticality, outletsUsed, chamberCount, devices, connections }));
+      } catch {
+        // Storage can be full or disabled; the draft is optional.
+      }
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [mode, dirty, name, description, chamber, tagsText, criticality, outletsUsed, chamberCount, devices, connections]);
+
+  function restoreDraft() {
+    const d = draft;
+    setName(d.name ?? ""); setDescription(d.description ?? ""); setChamber(!!d.chamber);
+    setTagsText(d.tagsText ?? ""); setCriticality(d.criticality ?? 3); setOutletsUsed(d.outletsUsed ?? 0);
+    setChamberCount(d.chamberCount ?? 0); setDevices(d.devices ?? []); setConnections(d.connections ?? []);
+    setDraft(null);
+    markDirty();
+  }
+
+  function discardDraft() {
+    window.localStorage.removeItem(DRAFT_KEY);
+    setDraft(null);
+  }
 
   useEffect(() => {
     fetchDeviceTypes()
@@ -411,11 +482,16 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
         const created = await createSetup(payload);
         if (apIdsFromDevices().length) await setSetupAccessPoints(created.id, apIdsFromDevices());
         window.localStorage.setItem("setup_resource_manager_new_setup", String(created.id));
+        dirtyRef.current = false;
+        window.localStorage.removeItem(DRAFT_KEY);
+        toast("Setup created");
         router.push("/");
         router.refresh();
       } else if (setupId) {
         await updateSetup(setupId, payload);
         await setSetupAccessPoints(setupId, apIdsFromDevices());
+        dirtyRef.current = false;
+        toast("Setup saved");
         router.push(`/setups/${setupId}`);
         router.refresh();
       }
@@ -514,7 +590,21 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
   const showError = (field: string) => submitAttempted || touched[field];
 
   return (
-    <form className="card" onSubmit={handleSubmit}>
+    <form
+      className="card"
+      onSubmit={handleSubmit}
+      onChange={markDirty}
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest("button[type=button]")) markDirty();
+      }}
+    >
+      {mode === "create" && draft && (
+        <div className="card" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", border: "1px solid #f59e0b" }}>
+          <span>You have an unsaved draft{draft.name ? " (" + draft.name + ")" : ""}.</span>
+          <button type="button" onClick={restoreDraft}>Restore draft</button>
+          <button type="button" className="secondary" onClick={discardDraft}>Discard</button>
+        </div>
+      )}
       <label>
         Name
         <input

@@ -1,7 +1,7 @@
 import ipaddress
 import re
 from pydantic import model_validator, BaseModel, Field, field_validator
-from typing import Optional, List
+from typing import Literal, Optional, List
 from datetime import datetime
 
 
@@ -173,6 +173,27 @@ class UsageUpdate(BaseModel):
                 datetime.strptime(self.used_until, "%Y-%m-%d")
             except ValueError:
                 raise ValueError("used_until must be a date in YYYY-MM-DD format")
+        return self
+
+
+class BulkAction(BaseModel):
+    ids: List[int] = Field(..., min_length=1, max_length=500)
+    action: Literal["add_tag", "remove_tag", "reserve", "release", "delete"]
+    tag: str = ""
+    used_by: str = Field("", max_length=100)
+    used_until: str = ""
+    usage_note: str = Field("", max_length=255)
+
+    @model_validator(mode="after")
+    def _check(self):
+        if self.action in ("add_tag", "remove_tag"):
+            self.tag = _clean_tags([self.tag])[0] if self.tag.strip() else ""
+            if not self.tag:
+                raise ValueError("tag is required")
+        if self.action == "reserve":
+            UsageUpdate(used_by=self.used_by, used_until=self.used_until, usage_note=self.usage_note)
+            if not self.used_by.strip():
+                raise ValueError("used_by is required")
         return self
 
 

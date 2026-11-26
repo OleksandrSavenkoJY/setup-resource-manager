@@ -1,8 +1,6 @@
 import "./globals.css";
-import AuthBar from "@/components/AuthBar";
-import HomeButton from "@/components/HomeButton";
-import TopNav from "@/components/TopNav";
-import ThemeToggle from "@/components/ThemeToggle";
+import NavBar from "@/components/NavBar";
+import UiProvider from "@/components/UiProvider";
 
 export const metadata = {
   title: "Setup Resource Manager",
@@ -23,15 +21,10 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
-        <TopNav>
-          <HomeButton />
-          <ThemeToggle />
-          <AuthBar part="status" />
-        </TopNav>
-        <TopNav right>
-          <AuthBar part="actions" />
-        </TopNav>
-        {children}
+        <UiProvider>
+          <NavBar />
+          {children}
+        </UiProvider>
       </body>
     </html>
   );

@@ -4,29 +4,27 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { emptyTrash, fetchTrash, purgeFromTrash, restoreFromTrash, type TrashEntry } from "@/lib/api";
 import { useCurrentUser } from "@/lib/useCurrentUser";
+import { useUi } from "@/components/UiProvider";
 
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : "");
 
 export default function TrashPage() {
   const me = useCurrentUser();
   const [items, setItems] = useState<TrashEntry[] | null>(null);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+  const { toast, confirm } = useUi();
 
-  const load = () => fetchTrash().then(setItems).catch((e) => setError(e.message));
+  const load = () => fetchTrash().then(setItems).catch((e) => toast(e.message, { kind: "error" }));
   useEffect(() => {
     if (me?.role === "admin") load();
   }, [me]);
 
   const run = async (action: () => Promise<unknown>, done: string) => {
-    setError("");
-    setMessage("");
     try {
       await action();
-      setMessage(done);
+      toast(done);
       await load();
     } catch (e: any) {
-      setError(e.message);
+      toast(e.message, { kind: "error" });
     }
   };
 
@@ -39,15 +37,13 @@ export default function TrashPage() {
       <h1>Trash</h1>
       <p><Link href="/">← Back to setups</Link></p>
       <p>Deleted setups can be restored (with devices, connections, photo and access point links). A restored setup gets a new id.</p>
-      {error && <p style={{ color: "#e00000" }}>{error}</p>}
-      {message && <p style={{ color: "#16a34a" }}>{message}</p>}
 
       {items && items.length > 0 && (
         <div className="card">
           <button
             className="secondary"
-            onClick={() => {
-              if (window.confirm("Delete everything in the trash permanently?")) run(emptyTrash, "Trash emptied");
+            onClick={async () => {
+              if (await confirm("Delete everything in the trash permanently?", "Empty trash")) run(emptyTrash, "Trash emptied");
             }}
           >
             Empty trash
@@ -71,14 +67,14 @@ export default function TrashPage() {
                 <td>{t.deleted_by}</td>
                 <td>{fmt(t.expires_at)}</td>
                 <td style={{ whiteSpace: "nowrap" }}>
-                  <button onClick={() => run(() => restoreFromTrash(t.id), "Restored " + t.name)}>Restore</button>{" "}
+                  <button onClick={() => run(() => restoreFromTrash(t.id), "Restored " + t.name)}>↩ Restore</button>{" "}
                   <button
                     className="secondary"
-                    onClick={() => {
-                      if (window.confirm("Delete " + t.name + " permanently?")) run(() => purgeFromTrash(t.id), "Deleted permanently");
+                    onClick={async () => {
+                      if (await confirm("Delete " + t.name + " permanently?", "Delete forever")) run(() => purgeFromTrash(t.id), "Deleted permanently");
                     }}
                   >
-                    Delete forever
+                    🗑 Delete forever
                   </button>
                 </td>
               </tr>

@@ -174,6 +174,36 @@ def set_usage(setup_id: int, body: schemas.UsageUpdate, db: Session = Depends(ge
     return get_setup(setup_id, db)
 
 
+@app.post("/setups/bulk", dependencies=[Depends(require_admin)])
+def bulk_action(body: schemas.BulkAction, db: Session = Depends(get_db), user: models.User = Depends(require_admin)):
+    """Applies one action to many setups. Missing ids are skipped and reported."""
+    setups = db.query(models.Setup).filter(models.Setup.id.in_(set(body.ids))).all()
+    found = {s.id for s in setups}
+    result = {"done": len(found), "missing": [i for i in body.ids if i not in found], "trash_ids": []}
+    if body.action == "delete":
+        for sid in sorted(found):
+            entry = trash.move_to_trash(db, sid, user)
+            if entry:
+                result["trash_ids"].append(entry.id)
+        return result
+    usage = schemas.UsageUpdate(used_by=body.used_by, used_until=body.used_until, usage_note=body.usage_note)
+    for s in setups:
+        if body.action == "add_tag":
+            tags = list(s.tags or [])
+            if body.tag.lower() not in [t.lower() for t in tags]:
+                if len(tags) >= schemas.MAX_TAGS:
+                    continue
+                s.tags = tags + [body.tag]
+        elif body.action == "remove_tag":
+            s.tags = [t for t in (s.tags or []) if t.lower() != body.tag.lower()]
+        elif body.action == "reserve":
+            s.used_by, s.used_until, s.usage_note = usage.used_by, usage.used_until, usage.usage_note
+        elif body.action == "release":
+            s.used_by = s.used_until = s.usage_note = ""
+    db.commit()
+    return result
+
+
 @app.post("/setups/{setup_id}/clone", response_model=schemas.SetupRead, dependencies=[Depends(require_admin)])
 def clone_setup(setup_id: int, db: Session = Depends(get_db)):
     src = (

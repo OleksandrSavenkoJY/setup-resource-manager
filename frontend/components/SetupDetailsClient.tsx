@@ -8,8 +8,9 @@ import CriticalityBadge from "@/components/Criticality";
 import ZoomableImage from "@/components/ZoomableImage";
 import OfficeMapView from "@/components/OfficeMapView";
 import Linkify from "@/components/Linkify";
-import { cloneSetup, deletePhoto, deleteSetup, fetchMapUrl, fetchNetworkSvg, fetchPhotoUrl, generateDiagram, setSetupLocation, updateUsage, uploadPhoto, type Diagram } from "@/lib/api";
+import { cloneSetup, deletePhoto, deleteSetup, fetchMapUrl, fetchNetworkSvg, fetchPhotoUrl, generateDiagram, restoreFromTrash, setSetupLocation, updateUsage, uploadPhoto, type Diagram } from "@/lib/api";
 import { useCurrentUser } from "@/lib/useCurrentUser";
+import { useUi } from "@/components/UiProvider";
 
 type Props = {
   setup: any;
@@ -20,6 +21,7 @@ type Props = {
 export default function SetupDetailsClient({ setup, prompt, diagram: initialDiagram }: Props) {
   const router = useRouter();
   const me = useCurrentUser();
+  const { toast } = useUi();
   const isAdmin = me?.role === "admin";
   const [diagram, setDiagram] = useState<Diagram | null>(initialDiagram);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -121,17 +123,15 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
   }
   const [usage, setUsage] = useState({ used_by: setup.used_by ?? "", used_until: setup.used_until ?? "", usage_note: setup.usage_note ?? "" });
   const [usageBusy, setUsageBusy] = useState(false);
-  const [usageMsg, setUsageMsg] = useState("");
 
   async function saveUsage(next: typeof usage) {
     setUsageBusy(true);
-    setUsageMsg("");
     try {
       const saved: any = await updateUsage(setup.id, next);
       setUsage({ used_by: saved.used_by ?? "", used_until: saved.used_until ?? "", usage_note: saved.usage_note ?? "" });
-      setUsageMsg(saved.used_by ? "Saved" : "Released");
+      toast(saved.used_by ? "Reserved" : "Released");
     } catch (err) {
-      setUsageMsg(err instanceof Error ? err.message : "Failed to save");
+      toast(err instanceof Error ? err.message : "Failed to save", { kind: "error" });
     } finally {
       setUsageBusy(false);
     }
@@ -165,7 +165,21 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
     try {
       setIsDeleting(true);
       setError(null);
-      await deleteSetup(setup.id);
+      const res = await deleteSetup(setup.id);
+      toast("Moved \"" + setup.name + "\" to the Trash", {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            try {
+              const restored = await restoreFromTrash(res.trash_id);
+              toast("Restored");
+              window.location.href = "/setups/" + restored.id;
+            } catch (e) {
+              toast(e instanceof Error ? e.message : "Failed to restore", { kind: "error" });
+            }
+          },
+        },
+      });
       router.push("/");
       router.refresh();
     } catch (err) {
@@ -213,7 +227,6 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
             <input style={{ maxWidth: 240, margin: 0 }} placeholder="Note (optional)" value={usage.usage_note} onChange={(e) => setUsage({ ...usage, usage_note: e.target.value })} />
             <button type="button" disabled={usageBusy || !usage.used_by.trim()} onClick={() => saveUsage(usage)}>Reserve</button>
             <button type="button" className="secondary" disabled={usageBusy || !usage.used_by} onClick={() => saveUsage({ used_by: "", used_until: "", usage_note: "" })}>Release</button>
-            {usageMsg && <span>{usageMsg}</span>}
           </div>
         )}
         {(() => {
@@ -399,15 +412,15 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
         <ExportButton setups={[{ id: setup.id, name: setup.name }]} />
         {isAdmin && (
           <Link href={`/setups/${setup.id}/edit`}>
-            <button>Edit</button>
+            <button>✏️ Edit</button>
           </Link>
         )}
         <Link href="/">
-          <button className="secondary">Back</button>
+          <button className="secondary">← Back</button>
         </Link>
         {isAdmin && (
           <button type="button" disabled={isCloning} onClick={handleClone}>
-            {isCloning ? "Cloning..." : "Clone"}
+            {isCloning ? "Cloning..." : "⧉ Clone"}
           </button>
         )}
         {isAdmin && (showConfirm ? (
@@ -419,7 +432,7 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
               style={{ maxWidth: 220 }}
             />
             <button type="button" className="secondary" disabled={!canDelete || isDeleting} onClick={handleDelete}>
-              {isDeleting ? "Deleting..." : "Confirm delete"}
+              {isDeleting ? "Deleting..." : "Move to Trash"}
             </button>
             <button type="button" className="secondary" onClick={() => { setShowConfirm(false); setConfirmText(""); }}>
               Cancel
@@ -427,7 +440,7 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
           </>
         ) : (
           <button type="button" className="secondary" title="The setup goes to the Trash and can be restored" onClick={() => setShowConfirm(true)}>
-            Delete setup
+            🗑 Delete setup
           </button>
         ))}
       </div>

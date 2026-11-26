@@ -1,3 +1,5 @@
+import Badge from "@/components/Badge";
+
 export const CRITICALITY = [
   { level: 2, label: "Minor", color: "#65a30d" },
   { level: 3, label: "Medium", color: "#d97706" },
@@ -10,12 +12,5 @@ export function criticalityInfo(level: number | null | undefined) {
 
 export default function CriticalityBadge({ level }: { level: number | null | undefined }) {
   const c = criticalityInfo(level);
-  return (
-    <span
-      title={`${c.label}`}
-      style={{ background: c.color, color: "#fff", borderRadius: 999, padding: "2px 10px", fontWeight: 700, whiteSpace: "nowrap" }}
-    >
-      {c.level} · {c.label}
-    </span>
-  );
+  return <Badge label={c.level + " · " + c.label} color={c.color} title={c.label} />;
 }

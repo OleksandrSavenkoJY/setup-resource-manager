@@ -115,10 +115,42 @@ a {
   color: #3b82f6;
 }
 
-/* Fixed top-left controls: semi-transparent until hovered/focused so they don't hide content. */
-.top-nav { opacity: 0.55; transition: opacity 0.15s; }
-.top-nav:hover, .top-nav:focus-within { opacity: 1; }
-.top-nav button { margin: 0; }
+/* Top navigation bar */
+.navbar {
+  position: sticky; top: 0; z-index: 20; height: 48px; box-sizing: border-box; padding: 0 16px;
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: 0 1px 4px var(--shadow);
+}
+.navbar button { margin: 0; padding: 5px 10px; }
+.navbar-title { margin-right: 8px; }
+.navbar-link { color: var(--text); text-decoration: none; padding: 6px 10px; border-radius: 8px; }
+.navbar-link:hover { background: var(--surface-alt); }
+.navbar-link.active { background: #2563eb; color: #fff; }
+
+.badge { display: inline-block; color: #fff; border-radius: 999px; padding: 2px 10px; font-weight: 700; white-space: nowrap; }
+.tag { display: inline-block; background: var(--border-soft); color: var(--text); border-radius: 999px; padding: 1px 8px; margin-right: 4px; font-size: 12px; }
+
+/* List table: zebra rows and a header that stays visible under the navbar */
+.list-table th { position: sticky; top: 48px; z-index: 5; background: var(--surface-alt); box-shadow: 0 1px 0 var(--border); }
+.list-table tbody tr:nth-child(even) td { background: var(--surface-alt); }
+.list-table tbody tr:hover td { background: var(--border-soft); }
+.list-table td.actions { white-space: nowrap; }
+.list-table td.actions button { padding: 3px 8px; margin-right: 4px; }
+.empty-state { text-align: center; padding: 32px 0; color: #6b7280; }
+
+.skeleton { height: 14px; border-radius: 6px; background: var(--border-soft); animation: skeleton 1.2s ease-in-out infinite; }
+@keyframes skeleton { 50% { opacity: .45; } }
+
+.bulk-bar { position: sticky; top: 56px; z-index: 6; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.bulk-bar button { padding: 4px 10px; }
+
+.toast-stack { position: fixed; right: 16px; bottom: 16px; z-index: 2000; display: flex; flex-direction: column; gap: 8px; max-width: 420px; }
+.toast { display: flex; gap: 8px; align-items: center; background: var(--surface); color: var(--text); padding: 10px 12px; border-radius: 8px; box-shadow: 0 2px 10px var(--shadow); }
+.toast span { flex: 1; }
+.toast button { padding: 3px 10px; }
+
+.modal-backdrop { position: fixed; inset: 0; z-index: 1500; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; }
+.modal { width: 360px; max-width: 92vw; margin: 0; }
 
 .map-wrap { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
 .map-wrap img { max-width: 100%; height: auto; border-radius: 8px; display: block; }

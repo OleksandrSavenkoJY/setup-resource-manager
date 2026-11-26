@@ -38,13 +38,14 @@ async function proxy(request: Request, { params }: Context) {
   const apExport = path.length === 1 && path[0] === "access-points-export";
   const apImport = path.length === 1 && path[0] === "access-points-import";
   const setupAps = path.length === 3 && path[0] === "setups" && num(path[1]) && path[2] === "access-points";
+  const bulk = path.length === 2 && path[0] === "setups" && path[1] === "bulk";
   const usage = path.length === 3 && path[0] === "setups" && num(path[1]) && path[2] === "usage";
   const trashRoot = path.length === 1 && path[0] === "trash";
   const trashItem = path.length === 2 && path[0] === "trash" && num(path[1]);
   const trashRestore = path.length === 3 && path[0] === "trash" && num(path[1]) && path[2] === "restore";
   const exportBundle = path.length === 1 && path[0] === "export";
 
-  if (!authMethod && !apCollection && !apItem && !apPhoto && !apImport && !apExport && !setupAps && !collection && !item && !prompt && !clone && !diagram && !exportBundle && !usage && !trashRoot && !trashItem && !trashRestore && !deviceTypes && !deviceIcons && !photo && !officeMap && !location && !netDiagram) {
+  if (!authMethod && !apCollection && !apItem && !apPhoto && !apImport && !apExport && !setupAps && !collection && !item && !prompt && !clone && !diagram && !exportBundle && !bulk && !usage && !trashRoot && !trashItem && !trashRestore && !deviceTypes && !deviceIcons && !photo && !officeMap && !location && !netDiagram) {
     return NextResponse.json({ detail: "Not found" }, { status: 404 });
   }
   const allowed = authMethod
@@ -59,6 +60,7 @@ async function proxy(request: Request, { params }: Context) {
     : apExport ? ["GET"]
     : setupAps ? ["PUT"]
     : photo || officeMap ? ["GET", "PUT", "DELETE"]
+    : bulk ? ["POST"]
     : location || usage ? ["PUT"]
     : trashRoot ? ["GET", "DELETE"]
     : trashItem ? ["DELETE"]
