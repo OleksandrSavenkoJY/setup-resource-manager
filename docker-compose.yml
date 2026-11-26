@@ -39,7 +39,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "3001:3000"
+      - "8080:3000"
 
   backup:
     image: postgres:16

@@ -30,7 +30,7 @@ docker compose up -d --build
 ```
 
 Services:
-- Frontend: http://localhost:3001
+- Frontend: http://localhost:8080
 - Backend API: http://localhost:8000 (`/health`)
 - PostgreSQL: localhost:5433
 
