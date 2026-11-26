@@ -31,12 +31,8 @@ function sortValue(s: any, key: SortKey): string | number {
   if (key === "name") return s.name;
   if (key === "chamber") return s.chamber ? 1 : 0;
   if (key === "criticality") return s.criticality;
-  if (key === "status") {
-    // Free first, then in use by the earliest end date, then in use without an end date.
-    if (!s.used_by) return 0;
-    const t = s.used_until ? Date.parse(s.used_until) : NaN;
-    return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t + 1;
-  }
+  // Free first, then by who uses it (so one person's setups are grouped), then by end date.
+  if (key === "status") return s.used_by ? "1 " + s.used_by.toLowerCase() + " " + (s.used_until || "9999-99-99") : "0";
   return s.outlets_used;
 }
 
