@@ -299,7 +299,7 @@ export default function AccessPointsPage() {
         </div>
       )}
 
-      <div className="table-scroll"><style>{`.ap-table th,.ap-table td{padding:6px 8px;font-size:14px;vertical-align:middle}.ap-table td{transition:background-color 1.5s ease-out}.ap-table tr.ap-hl td{background-color:rgba(250,204,21,.55)!important;transition:background-color .3s}`}</style>
+      <div className="table-scroll"><style>{`.ap-table th,.ap-table td{padding:6px 8px;font-size:14px;vertical-align:middle}[data-density="compact"] .ap-table th,[data-density="compact"] .ap-table td{padding:3px 8px;font-size:13px}.ap-table td{transition:background-color 1.5s ease-out}.ap-table tr.ap-hl td{background-color:rgba(250,204,21,.55)!important;transition:background-color .3s}`}</style>
         <table className="data-table ap-table" style={{ width: "100%" }}>
           <thead>
             <tr>
