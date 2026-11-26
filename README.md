@@ -11,7 +11,7 @@ Inventory of test setups: devices, connections, power, network interfaces, photo
 ## Features
 - Setups with devices, connections (with cable type), chambers, power sources ("Powered from", UPS, auto-counted wall outlets)
 - Network interfaces (name, type, IP, MAC) and a generated network diagram
-- Generated schema (SVG / draw.io) with zoom, setup photo, export of any selection of setups (Excel data, schema PNG and draw.io, photo), AI prompt
+- Generated schema (SVG / draw.io) with zoom, setup photo, export of any selection of setups (Excel data, schema PNG and draw.io, photo, office map with a marker), AI prompt
 - Office map with setup markers
 - Tags, and a Free / In use by ... until ... status per setup (set by the admin on the details page)
 - Top navigation, sortable/searchable list (state kept in the URL), row actions and bulk actions (reserve, release, tags, delete, export), toasts with Undo, unsaved-changes warning and draft for new setups

@@ -519,7 +519,7 @@ def _load_setups_raw(db: Session, setup_id: int | None = None):
     return query.order_by(models.Setup.id).all()
 
 
-EXPORT_ITEMS = ("data", "png", "drawio", "photo")
+EXPORT_ITEMS = ("data", "png", "drawio", "photo", "location")
 PHOTO_EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
 
 
@@ -534,7 +534,7 @@ def _current_diagram(db: Session, setup_id: int) -> models.SetupDiagram:
 @app.get("/export")
 def export_bundle(
     ids: str = Query("", description="Comma-separated setup ids; empty means all setups"),
-    items: str = Query("data", description="Comma-separated: data, png, drawio, photo"),
+    items: str = Query("data", description="Comma-separated: data, png, drawio, photo, location"),
     scope: str = Query("full", pattern="^(setups|connections|full)$"),
     db: Session = Depends(get_db),
     user: models.User = Depends(get_current_user),
@@ -567,6 +567,7 @@ def export_bundle(
         else:
             files.append((f"setups-{scope}.xlsx", exporter.build_xlsx(setups, scope), XLSX_MIME))
 
+    office = db.get(models.OfficeMap, 1) if "location" in wanted else None
     for s in setups:
         base = f"{s.id}_{exporter.safe_name(s.name)}"
         place = (lambda suffix, ext: f"{base}_{suffix}.{ext}") if single else (lambda suffix, ext: f"{base}/{suffix}.{ext}")
@@ -576,13 +577,15 @@ def export_bundle(
                 files.append((place("schema", "png"), exporter.svg_to_png(diagram.svg), "image/png"))
             if "drawio" in wanted:
                 files.append((place("schema", "drawio"), diagram.drawio_xml.encode("utf-8"), "application/vnd.jgraph.mxfile"))
+        if office and s.map_x is not None and s.map_y is not None:
+            files.append((place("location", "png"), exporter.location_png(office.data, s), "image/png"))
         if "photo" in wanted:
             photo = db.get(models.SetupPhoto, s.id)
             if photo:
                 files.append((place("photo", PHOTO_EXT.get(photo.content_type, "bin")), photo.data, photo.content_type))
 
     if not files:
-        raise HTTPException(status_code=404, detail="Nothing to export (the selected setups have no photo)")
+        raise HTTPException(status_code=404, detail="Nothing to export (the selected setups have no photo or office location)")
     if len(files) == 1:
         name, content, media = files[0]
         return _download(content, media, name)

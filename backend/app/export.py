@@ -83,10 +83,31 @@ def _add_schema_image(ws, setup, anchor="A1"):
     ws.add_image(img, anchor)
 
 
-def _map_location(s):
-    if s.map_x is None or s.map_y is None:
-        return "Not placed"
-    return f"x {s.map_x * 100:.0f}%, y {s.map_y * 100:.0f}%"
+def location_png(map_bytes: bytes, setup) -> bytes:
+    """The office map with a marker where the setup stands."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.open(io.BytesIO(map_bytes)).convert("RGB")
+    w, h = img.size
+    r = max(10, round(min(w, h) * 0.025))
+    cx, cy = setup.map_x * w, setup.map_y * h
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([cx - r * 1.8, cy - r * 1.8, cx + r * 1.8, cy + r * 1.8], outline=(220, 38, 38), width=max(3, r // 4))
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(220, 38, 38), outline=(255, 255, 255), width=max(2, r // 5))
+    try:
+        font = ImageFont.load_default(size=max(14, r * 2))
+    except TypeError:
+        font = ImageFont.load_default()
+    label = setup.name
+    box = draw.textbbox((0, 0), label, font=font)
+    tw, th = box[2] - box[0], box[3] - box[1]
+    tx = min(max(4, cx - tw / 2), max(4, w - tw - 8))
+    ty = cy + r * 2.2 if cy + r * 2.2 + th + 8 < h else cy - r * 2.2 - th - 8
+    draw.rectangle([tx - 4, ty - 4, tx + tw + 4, ty + th + 4], fill=(255, 255, 255), outline=(220, 38, 38))
+    draw.text((tx - box[0], ty - box[1]), label, fill=(17, 17, 17), font=font)
+    out = io.BytesIO()
+    img.save(out, "PNG")
+    return out.getvalue()
 
 
 def _device_locations(s):
@@ -104,12 +125,12 @@ def build_xlsx(setups, scope: str) -> bytes:
     ws.title = "Setups"
     _write_table(
         ws,
-        ["ID", "Name", "Description", "Chamber", "Chambers", "Criticality (2-4)", "Outlets used", "Tags", "In use by", "In use until", "Device locations", "Office map", "Devices", "Connections", "Created", "Updated"],
+        ["ID", "Name", "Description", "Chamber", "Chambers", "Criticality (2-4)", "Outlets used", "Tags", "In use by", "In use until", "Device locations", "Devices", "Connections", "Created", "Updated"],
         [
             [
                 s.id, s.name, s.description, "Yes" if s.chamber else "No", s.chamber_count, s.criticality, s.outlets_used,
                 ", ".join(s.tags or []), s.used_by or None, s.used_until or None,
-                _device_locations(s), _map_location(s),
+                _device_locations(s),
                 len(s.devices), len(s.connections),
                 s.created_at.strftime("%Y-%m-%d %H:%M") if s.created_at else None,
                 s.updated_at.strftime("%Y-%m-%d %H:%M") if s.updated_at else None,
@@ -158,7 +179,6 @@ def build_single_xlsx(setup) -> bytes:
         ("In use by", setup.used_by or None),
         ("In use until", setup.used_until or None),
         ("Device locations", _device_locations(setup)),
-        ("Office map", _map_location(setup)),
         ("Created", setup.created_at.strftime("%Y-%m-%d %H:%M") if setup.created_at else None),
         ("Updated", setup.updated_at.strftime("%Y-%m-%d %H:%M") if setup.updated_at else None),
     ]

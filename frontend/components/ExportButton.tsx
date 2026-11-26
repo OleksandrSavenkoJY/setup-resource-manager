@@ -124,6 +124,10 @@ export default function ExportButton({ setups }: { setups: SetupRef[] }) {
               <input type="checkbox" style={box} checked={items.includes("photo")} onChange={() => toggleItem("photo")} />
               Photo
             </label>
+            <label style={row}>
+              <input type="checkbox" style={box} checked={items.includes("location")} onChange={() => toggleItem("location")} />
+              Office location (map with marker, .png)
+            </label>
             <small style={{ opacity: 0.7 }}>
               One file is downloaded as is; several files come as a .zip. Schemas that were not generated yet are generated now, which can take a while for many setups.
             </small>
