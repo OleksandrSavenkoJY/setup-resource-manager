@@ -111,7 +111,7 @@ class SetupBase(BaseModel):
     chamber: bool = False
     outlets_used: int = 0
     chamber_count: int = Field(0, ge=0, le=50)
-    criticality: int = Field(3, ge=1, le=5)
+    criticality: int = Field(3, ge=2, le=4)
 
 
 POWER_OUTLET = "__outlet__"
@@ -153,7 +153,7 @@ class SetupUpdate(BaseModel):
     chamber: Optional[bool] = None
     outlets_used: Optional[int] = None
     chamber_count: Optional[int] = Field(None, ge=0, le=50)
-    criticality: Optional[int] = Field(None, ge=1, le=5)
+    criticality: Optional[int] = Field(None, ge=2, le=4)
     devices: Optional[List[DeviceCreate]] = None
     connections: Optional[List[ConnectionCreate]] = None
 

@@ -24,6 +24,9 @@ with engine.begin() as _conn:
         _conn.execute(text("UPDATE setups SET chamber_count = 1 WHERE chamber"))
     if "criticality" not in _cols:
         _conn.execute(text("ALTER TABLE setups ADD COLUMN criticality INTEGER NOT NULL DEFAULT 3"))
+    # The scale is 2-4 (levels 1 and 5 were removed).
+    _conn.execute(text("UPDATE setups SET criticality = 2 WHERE criticality < 2"))
+    _conn.execute(text("UPDATE setups SET criticality = 4 WHERE criticality > 4"))
 
 with engine.begin() as _conn:
     if "icon" not in {c["name"] for c in inspect(_conn).get_columns("device_types")}:

@@ -90,7 +90,7 @@ def build_xlsx(setups, scope: str) -> bytes:
     ws.title = "Setups"
     _write_table(
         ws,
-        ["ID", "Name", "Description", "Chamber", "Chambers", "Criticality (1-5)", "Outlets used", "Devices", "Connections", "Created", "Updated"],
+        ["ID", "Name", "Description", "Chamber", "Chambers", "Criticality (2-4)", "Outlets used", "Devices", "Connections", "Created", "Updated"],
         [
             [
                 s.id, s.name, s.description, "Yes" if s.chamber else "No", s.chamber_count, s.criticality, s.outlets_used,
@@ -136,7 +136,7 @@ def build_single_xlsx(setup) -> bytes:
         ("Description", setup.description),
         ("Chamber", "Yes" if setup.chamber else "No"),
         ("Chambers", setup.chamber_count),
-        ("Criticality (1-5)", setup.criticality),
+        ("Criticality (2-4)", setup.criticality),
         ("Outlets used", setup.outlets_used),
         ("Created", setup.created_at.strftime("%Y-%m-%d %H:%M") if setup.created_at else None),
         ("Updated", setup.updated_at.strftime("%Y-%m-%d %H:%M") if setup.updated_at else None),

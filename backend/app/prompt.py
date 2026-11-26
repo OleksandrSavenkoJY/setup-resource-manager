@@ -27,7 +27,7 @@ Setup name: {setup.name}
 Description: {setup.description or 'N/A'}
 Chamber: {"Yes" if setup.chamber else "No"}
 Chambers: {setup.chamber_count}
-Criticality (1 low - 5 critical): {setup.criticality}
+Criticality (2 minor - 4 high): {setup.criticality}
 Outlets used: {setup.outlets_used}
 
 Devices:
