@@ -189,11 +189,6 @@ main:focus { outline: none; }
 .tab.active { color: #2563eb; border-bottom-color: #2563eb; font-weight: 700; }
 [data-theme="dark"] .tab.active { color: #93c5fd; border-bottom-color: #93c5fd; }
 
-/* Table density (toggle in the navbar) */
-[data-density="compact"] th, [data-density="compact"] td { padding: 3px 8px; font-size: 13px; }
-[data-density="compact"] .list-table th { top: 48px; }
-[data-density="compact"] .badge { padding: 0 8px; font-size: 12px; }
-
 .sticky-actions {
   position: sticky;
   bottom: 0;

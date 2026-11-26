@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import AuthBar from "@/components/AuthBar";
 import ThemeToggle from "@/components/ThemeToggle";
-import DensityToggle from "@/components/DensityToggle";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 
 export default function NavBar() {
@@ -26,7 +25,6 @@ export default function NavBar() {
         <Link key={l.href} href={l.href} className={"navbar-link" + (l.active ? " active" : "")} aria-current={l.active ? "page" : undefined}>{l.label}</Link>
       ))}
       <span style={{ flex: 1 }} />
-      <DensityToggle />
       <ThemeToggle />
       <AuthBar part="status" />
       <AuthBar part="actions" />
