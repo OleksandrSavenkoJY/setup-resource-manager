@@ -13,6 +13,7 @@ import Linkify from "@/components/Linkify";
 import { cloneSetup, deletePhoto, deleteSetup, fetchMapUrl, fetchNetworkSvg, fetchPhotoUrl, generateDiagram, resetDiagramLayout, restoreFromTrash, saveDiagramLayout, setSetupLocation, updateUsage, uploadPhoto, type Diagram } from "@/lib/api";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 import { useUi } from "@/components/UiProvider";
+import { copyText } from "@/lib/clipboard";
 
 type Props = {
   setup: any;
@@ -27,6 +28,7 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
   const isAdmin = me?.role === "admin";
   const [diagram, setDiagram] = useState<Diagram | null>(initialDiagram);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [view, setView] = useState<"photo" | "generated" | "location" | "network">("photo");
   const [netSvg, setNetSvg] = useState<string | null>(null);
@@ -494,8 +496,14 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
 
       {isAdmin && prompt !== null && (
         <div className="card">
-          <h2>Generated prompt</h2>
-          <pre style={{ whiteSpace: "pre-wrap" }}>{prompt}</pre>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <h2 style={{ margin: 0, marginRight: "auto" }}>Generated prompt</h2>
+            <button type="button" className="secondary" onClick={() => { copyText(prompt).then(() => toast("Prompt copied")); }}>Copy</button>
+            <button type="button" className="secondary" aria-expanded={showPrompt} onClick={() => setShowPrompt((v) => !v)}>
+              {showPrompt ? "Hide" : "Show"}
+            </button>
+          </div>
+          {showPrompt && <pre style={{ whiteSpace: "pre-wrap" }}>{prompt}</pre>}
         </div>
       )}
 
