@@ -1,5 +1,6 @@
 "use client";
 
+import { useEscape } from "@/lib/useEscape";
 import { createContext, useCallback, useContext, useRef, useState } from "react";
 
 type ToastAction = { label: string; onClick: () => void | Promise<void> };
@@ -19,7 +20,7 @@ const UiContext = createContext<Ui>({
 
 export const useUi = () => useContext(UiContext);
 
-const COLORS: Record<ToastKind, string> = { success: "#16a34a", error: "#dc2626", info: "#2563eb" };
+const COLORS: Record<ToastKind, string> = { success: "#15803d", error: "#b91c1c", info: "#2563eb" };
 
 export default function UiProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -46,13 +47,14 @@ export default function UiProvider({ children }: { children: React.ReactNode }) 
     dialog?.resolve(ok);
     setDialog(null);
   };
+  useEscape(!!dialog, () => answer(false));
 
   return (
     <UiContext.Provider value={{ toast, confirm }}>
       {children}
       <div className="toast-stack" role="status" aria-live="polite">
         {toasts.map((t) => (
-          <div key={t.id} className="toast" style={{ borderLeft: "4px solid " + COLORS[t.kind] }}>
+          <div key={t.id} className="toast" role={t.kind === "error" ? "alert" : undefined} style={{ borderLeft: "4px solid " + COLORS[t.kind] }}>
             <span>{t.text}</span>
             {t.action && (
               <button
@@ -71,7 +73,7 @@ export default function UiProvider({ children }: { children: React.ReactNode }) 
       </div>
       {dialog && (
         <div className="modal-backdrop" onClick={() => answer(false)}>
-          <div className="card modal" onClick={(e) => e.stopPropagation()}>
+          <div className="card modal" role="alertdialog" aria-modal="true" aria-label="Confirm" onClick={(e) => e.stopPropagation()}>
             <p style={{ marginTop: 0 }}>{dialog.text}</p>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button type="button" className="secondary" onClick={() => answer(false)}>Cancel</button>

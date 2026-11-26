@@ -106,7 +106,15 @@ export default function HomePage() {
   const toggleSort = (key: SortKey) =>
     setSort((s) => (!s || s.key !== key ? { key, dir: 1 } : s.dir === 1 ? { key, dir: -1 } : null));
   const sortTh = (key: SortKey, label: string) => (
-    <th onClick={() => toggleSort(key)} style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }} title="Click to sort">
+    <th
+      scope="col"
+      tabIndex={0}
+      aria-sort={sort?.key === key ? (sort.dir === 1 ? "ascending" : "descending") : "none"}
+      onClick={() => toggleSort(key)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort(key); } }}
+      style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}
+      title="Click to sort"
+    >
       {label}{sort?.key === key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}
     </th>
   );
@@ -222,7 +230,7 @@ export default function HomePage() {
       <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <input
           style={{ maxWidth: 260, margin: 0 }}
-          placeholder="🔍 Search name or tag..."
+          aria-label="Search setups by name or tag" placeholder="🔍 Search name or tag..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -312,7 +320,7 @@ export default function HomePage() {
                 )}
                 <td>{index + 1}</td>
                 <td>
-                  <Link href={"/setups/" + setup.id}>{setup.name}</Link> {isNew ? <span style={{ color: "#16a34a", fontWeight: 700 }}>(New)</span> : null}
+                  <Link href={"/setups/" + setup.id}>{setup.name}</Link> {isNew ? <span className="text-ok" style={{ fontWeight: 700 }}>(New)</span> : null}
                 </td>
                 <td><Badge label={setup.chamber ? "Yes" : "No"} color={setup.chamber ? BADGE_COLORS.blue : BADGE_COLORS.grey} /></td>
                 <td><CriticalityBadge level={setup.criticality} /></td>

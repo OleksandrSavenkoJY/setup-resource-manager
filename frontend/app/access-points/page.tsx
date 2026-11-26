@@ -11,9 +11,9 @@ import Linkify from "@/components/Linkify";
 
 const AUTOMATION: Record<string, { label: string; color: string }> = {
   "": { label: "?", color: "#6b7280" },
-  yes: { label: "Yes", color: "#00a000" },
-  no: { label: "No", color: "#e00000" },
-  in_progress: { label: "In progress", color: "#f59e0b" },
+  yes: { label: "Yes", color: "#15803d" },
+  no: { label: "No", color: "#b91c1c" },
+  in_progress: { label: "In progress", color: "#b45309" },
 };
 
 function Pill({ label, color }: { label: string; color: string }) {
@@ -124,7 +124,15 @@ export default function AccessPointsPage() {
   function sortTh(key: SortKey, label: string) {
     const arrow = sort?.key === key ? (sort.dir === 1 ? " ▲" : " ▼") : "";
     return (
-      <th onClick={() => toggleSort(key)} style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }} title="Click to sort">
+      <th
+      scope="col"
+      tabIndex={0}
+      aria-sort={sort?.key === key ? (sort.dir === 1 ? "ascending" : "descending") : "none"}
+      onClick={() => toggleSort(key)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort(key); } }}
+      style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}
+      title="Click to sort"
+    >
         {label}{arrow}
       </th>
     );

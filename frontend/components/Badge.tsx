@@ -1,8 +1,8 @@
 export const BADGE_COLORS = {
-  green: "#16a34a",
+  green: "#15803d",
   blue: "#2563eb",
   grey: "#6b7280",
-  amber: "#f59e0b",
+  amber: "#b45309",
   red: "#dc2626",
 } as const;
 

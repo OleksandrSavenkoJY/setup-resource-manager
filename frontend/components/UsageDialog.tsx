@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useEscape } from "@/lib/useEscape";
 
 export type UsageValue = { used_by: string; used_until: string; usage_note: string };
 
@@ -16,6 +17,7 @@ export default function UsageDialog({
     used_by: initial?.used_by ?? "", used_until: initial?.used_until ?? "", usage_note: initial?.usage_note ?? "",
   });
   const [busy, setBusy] = useState(false);
+  useEscape(true, onCancel);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -30,7 +32,7 @@ export default function UsageDialog({
 
   return (
     <div className="modal-backdrop" onClick={onCancel}>
-      <form className="card modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+      <form className="card modal" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()} onSubmit={submit}>
         <h3 style={{ marginTop: 0 }}>{title}</h3>
         <label>Who uses it
           <input autoFocus value={value.used_by} maxLength={100} onChange={(e) => setValue({ ...value, used_by: e.target.value })} />

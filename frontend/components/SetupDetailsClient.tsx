@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import ExportButton from "@/components/ExportButton";
+import Badge, { BADGE_COLORS } from "@/components/Badge";
 import CriticalityBadge from "@/components/Criticality";
 import ZoomableImage from "@/components/ZoomableImage";
 import OfficeMapView from "@/components/OfficeMapView";
@@ -138,6 +139,7 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
   }
   const overdue = !!usage.used_by && !!usage.used_until && usage.used_until < new Date().toISOString().slice(0, 10);
 
+  const [tab, setTab] = useState<"devices" | "network" | "connections">("devices");
   const [showConfirm, setShowConfirm] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
@@ -192,34 +194,67 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
   }
 
   return (
-    <main>
-      <h1>Setup details</h1>
+    <main style={{ maxWidth: "min(1400px, 96vw)" }}>
+      <h1 style={{ marginBottom: 8 }}>{setup.name}</h1>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
+        <CriticalityBadge level={setup.criticality} />
+        {usage.used_by ? (
+          <Badge
+            label={"In use by " + usage.used_by + (usage.used_until ? " until " + usage.used_until : "") + (overdue ? " (overdue)" : "")}
+            color={overdue ? BADGE_COLORS.red : BADGE_COLORS.amber}
+            title={usage.usage_note || undefined}
+          />
+        ) : (
+          <Badge label="Free" color={BADGE_COLORS.green} />
+        )}
+        {setup.chamber ? <Badge label="Chamber" color={BADGE_COLORS.blue} /> : null}
+        {(setup.tags ?? []).map((t: string) => <span key={t} className="tag">{t}</span>)}
+      </div>
 
+      <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+        <ExportButton setups={[{ id: setup.id, name: setup.name }]} />
+        {isAdmin && (
+          <Link href={`/setups/${setup.id}/edit`}>
+            <button>✏️ Edit</button>
+          </Link>
+        )}
+        <Link href="/">
+          <button className="secondary">← Back</button>
+        </Link>
+        {isAdmin && (
+          <button type="button" disabled={isCloning} onClick={handleClone}>
+            {isCloning ? "Cloning..." : "⧉ Clone"}
+          </button>
+        )}
+        {isAdmin && (showConfirm ? (
+          <>
+            <input
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder='Type DELETE to confirm'
+              style={{ maxWidth: 220 }}
+            />
+            <button type="button" className="secondary" disabled={!canDelete || isDeleting} onClick={handleDelete}>
+              {isDeleting ? "Deleting..." : "Move to Trash"}
+            </button>
+            <button type="button" className="secondary" onClick={() => { setShowConfirm(false); setConfirmText(""); }}>
+              Cancel
+            </button>
+          </>
+        ) : (
+          <button type="button" className="secondary" title="The setup goes to the Trash and can be restored" onClick={() => setShowConfirm(true)}>
+            🗑 Delete setup
+          </button>
+        ))}
+      </div>
+
+
+      <div className="details-grid">
+        <div>
       <div className="card">
         <p><b>ID:</b> {setup.id}</p>
-        <p><b>Name:</b> {setup.name}</p>
         <p><b>Description:</b> {setup.description || "-"}</p>
         {setup.chamber ? <p><b>Chambers:</b> {setup.chamber_count ?? 0}</p> : null}
-        <p><b>Criticality:</b> <CriticalityBadge level={setup.criticality} /></p>
-        {(setup.tags ?? []).length > 0 && (
-          <p>
-            <b>Tags:</b>{" "}
-            {setup.tags.map((t: string) => (
-              <span key={t} style={{ background: "#e5e7eb", color: "#111", borderRadius: 999, padding: "1px 8px", marginRight: 4, fontSize: 12 }}>{t}</span>
-            ))}
-          </p>
-        )}
-        <p>
-          <b>Status:</b>{" "}
-          {usage.used_by ? (
-            <span style={{ color: overdue ? "#e00000" : undefined, fontWeight: 700 }}>
-              In use by {usage.used_by}{usage.used_until ? " until " + usage.used_until : ""}{overdue ? " (overdue)" : ""}
-              {usage.usage_note ? " - " + usage.usage_note : ""}
-            </span>
-          ) : (
-            <span style={{ color: "#16a34a", fontWeight: 700 }}>Free</span>
-          )}
-        </p>
         {isAdmin && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
             <input style={{ maxWidth: 160, margin: 0 }} placeholder="Who uses it" value={usage.used_by} onChange={(e) => setUsage({ ...usage, used_by: e.target.value })} />
@@ -249,87 +284,8 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
         </p>
         <p><b>Outlets used:</b> {setup.outlets_used}</p>
       </div>
-
-      <div className="card">
-        <h2>Devices</h2>
-        {setup.devices?.length ? (
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr><th>Type</th><th>Name</th><th>Location</th><th>Powered from</th><th>PFA</th><th>Notes</th></tr>
-              </thead>
-              <tbody>
-                {setup.devices.map((d: any) => (
-                  <tr key={d.id}>
-                    <td>{d.type}</td>
-                    <td>{d.name}</td>
-                    <td>{d.location || "-"}</td>
-                    <td>{d.power_from === "__outlet__" ? "Wall outlet" : d.power_from || "-"}</td>
-                    <td>{d.pfa_ip ? <a href={`http://${d.pfa_ip}:8080`} target="_blank" rel="noreferrer">{d.pfa_ip}</a> : "-"}</td>
-                    <td><Linkify text={d.notes} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p>No devices</p>
-        )}
-      </div>
-
-      {netRows.length > 0 && (
-        <div className="card">
-          <h2>Network</h2>
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr><th>Device</th><th>Interface</th><th>Type</th><th>IP</th><th>MAC</th></tr>
-              </thead>
-              <tbody>
-                {netRows.map((n: any, i: number) => (
-                  <tr key={i}>
-                    <td>{n.device}</td>
-                    <td>{n.name || "-"}</td>
-                    <td>{n.type || "-"}</td>
-                    <td>{n.ip || "-"}</td>
-                    <td>{n.mac || "-"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
-      )}
-
-      <div className="card">
-        <h2>Connections</h2>
-        {setup.connections?.length ? (
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr><th>From device</th><th>From interface</th><th>To device</th><th>To interface</th><th>Cable</th><th>Power</th><th>Radio</th><th>Notes</th></tr>
-              </thead>
-              <tbody>
-                {setup.connections.map((c: any) => (
-                  <tr key={c.id}>
-                    <td>{c.from_device}</td>
-                    <td>{c.from_port || "-"}</td>
-                    <td>{c.to_device}</td>
-                    <td>{c.to_port || "-"}</td>
-                    <td>{c.cable_type || "-"}</td>
-                    <td>{c.powers === "from" ? `${c.from_device} → ${c.to_device}` : c.powers === "to" ? `${c.to_device} → ${c.from_device}` : "-"}</td>
-                    <td>{{ ota: "Over the air", conducted: "Conducted", hybrid: "Hybrid" }[c.radio_mode as string] ?? "-"}</td>
-                    <td><Linkify text={c.notes} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p>No connections</p>
-        )}
-      </div>
-
+        <div>
       <div className="card">
         <h2>Schema</h2>
         {[photoUrl, diagram, mapUrl, netSvg].filter(Boolean).length > 1 ? (
@@ -400,6 +356,108 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
           </div>
         )}
       </div>
+        </div>
+      </div>
+
+      <div className="tabs" role="tablist">
+        {([
+          ["devices", "Devices", setup.devices?.length ?? 0],
+          ...(netRows.length > 0 ? [["network", "Network", netRows.length]] : []),
+          ["connections", "Connections", setup.connections?.length ?? 0],
+        ] as [string, string, number][]).map(([key, label, count]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            className={tab === key ? "tab active" : "tab"}
+            onClick={() => setTab(key as "devices" | "network" | "connections")}
+          >
+            {label} ({count})
+          </button>
+        ))}
+      </div>
+
+      {tab === "devices" && (
+      <div className="card">
+        {setup.devices?.length ? (
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr><th>Type</th><th>Name</th><th>Location</th><th>Powered from</th><th>PFA</th><th>Notes</th></tr>
+              </thead>
+              <tbody>
+                {setup.devices.map((d: any) => (
+                  <tr key={d.id}>
+                    <td>{d.type}</td>
+                    <td>{d.name}</td>
+                    <td>{d.location || "-"}</td>
+                    <td>{d.power_from === "__outlet__" ? "Wall outlet" : d.power_from || "-"}</td>
+                    <td>{d.pfa_ip ? <a href={`http://${d.pfa_ip}:8080`} target="_blank" rel="noreferrer">{d.pfa_ip}</a> : "-"}</td>
+                    <td><Linkify text={d.notes} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p>No devices</p>
+        )}
+      </div>
+      )}
+
+      {tab === "network" && netRows.length > 0 && (
+        <div className="card">
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr><th>Device</th><th>Interface</th><th>Type</th><th>IP</th><th>MAC</th></tr>
+              </thead>
+              <tbody>
+                {netRows.map((n: any, i: number) => (
+                  <tr key={i}>
+                    <td>{n.device}</td>
+                    <td>{n.name || "-"}</td>
+                    <td>{n.type || "-"}</td>
+                    <td>{n.ip || "-"}</td>
+                    <td>{n.mac || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === "connections" && (
+      <div className="card">
+        {setup.connections?.length ? (
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr><th>From device</th><th>From interface</th><th>To device</th><th>To interface</th><th>Cable</th><th>Power</th><th>Radio</th><th>Notes</th></tr>
+              </thead>
+              <tbody>
+                {setup.connections.map((c: any) => (
+                  <tr key={c.id}>
+                    <td>{c.from_device}</td>
+                    <td>{c.from_port || "-"}</td>
+                    <td>{c.to_device}</td>
+                    <td>{c.to_port || "-"}</td>
+                    <td>{c.cable_type || "-"}</td>
+                    <td>{c.powers === "from" ? `${c.from_device} → ${c.to_device}` : c.powers === "to" ? `${c.to_device} → ${c.from_device}` : "-"}</td>
+                    <td>{{ ota: "Over the air", conducted: "Conducted", hybrid: "Hybrid" }[c.radio_mode as string] ?? "-"}</td>
+                    <td><Linkify text={c.notes} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p>No connections</p>
+        )}
+      </div>
+      )}
 
       {isAdmin && prompt !== null && (
         <div className="card">
@@ -408,42 +466,6 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
         </div>
       )}
 
-      <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
-        <ExportButton setups={[{ id: setup.id, name: setup.name }]} />
-        {isAdmin && (
-          <Link href={`/setups/${setup.id}/edit`}>
-            <button>✏️ Edit</button>
-          </Link>
-        )}
-        <Link href="/">
-          <button className="secondary">← Back</button>
-        </Link>
-        {isAdmin && (
-          <button type="button" disabled={isCloning} onClick={handleClone}>
-            {isCloning ? "Cloning..." : "⧉ Clone"}
-          </button>
-        )}
-        {isAdmin && (showConfirm ? (
-          <>
-            <input
-              value={confirmText}
-              onChange={(e) => setConfirmText(e.target.value)}
-              placeholder='Type DELETE to confirm'
-              style={{ maxWidth: 220 }}
-            />
-            <button type="button" className="secondary" disabled={!canDelete || isDeleting} onClick={handleDelete}>
-              {isDeleting ? "Deleting..." : "Move to Trash"}
-            </button>
-            <button type="button" className="secondary" onClick={() => { setShowConfirm(false); setConfirmText(""); }}>
-              Cancel
-            </button>
-          </>
-        ) : (
-          <button type="button" className="secondary" title="The setup goes to the Trash and can be restored" onClick={() => setShowConfirm(true)}>
-            🗑 Delete setup
-          </button>
-        ))}
-      </div>
 
       {error ? <div className="field-error" style={{ padding: 12 }}>{error}</div> : null}
     </main>

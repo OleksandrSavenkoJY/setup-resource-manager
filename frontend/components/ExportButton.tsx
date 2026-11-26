@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useEscape } from "@/lib/useEscape";
 import { downloadExport } from "@/lib/api";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 
@@ -24,6 +25,7 @@ export default function ExportButton({ setups }: { setups: SetupRef[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  useEscape(open && !busy, () => setOpen(false));
   const single = setups.length === 1;
   const ids = single ? [setups[0].id] : selected;
 
@@ -59,6 +61,7 @@ export default function ExportButton({ setups }: { setups: SetupRef[] }) {
         <div
           role="dialog"
           aria-modal="true"
+          aria-label="Export"
           onClick={() => !busy && setOpen(false)}
           style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000,

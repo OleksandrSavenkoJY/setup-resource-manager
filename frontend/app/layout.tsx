@@ -1,5 +1,6 @@
 import "./globals.css";
 import NavBar from "@/components/NavBar";
+import SkipLink from "@/components/SkipLink";
 import UiProvider from "@/components/UiProvider";
 
 export const metadata = {
@@ -8,7 +9,7 @@ export const metadata = {
 };
 
 // Runs before paint so the saved (or system) theme is applied without a flash.
-const themeScript = `(function(){try{var t=localStorage.getItem("theme");if(!t){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.dataset.theme=t;}catch(e){}})();`;
+const themeScript = `(function(){try{var t=localStorage.getItem("theme");if(!t){t=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.dataset.theme=t;document.documentElement.dataset.density=localStorage.getItem("density")||"normal";}catch(e){}})();`;
 
 export default function RootLayout({
   children,
@@ -22,6 +23,7 @@ export default function RootLayout({
       </head>
       <body>
         <UiProvider>
+          <SkipLink />
           <NavBar />
           {children}
         </UiProvider>
