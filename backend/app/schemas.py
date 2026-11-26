@@ -105,6 +105,29 @@ class ConnectionRead(ConnectionBase):
         from_attributes = True
 
 
+MAX_TAGS = 20
+
+
+def _clean_tags(v):
+    if v is None:
+        return v
+    seen, out = set(), []
+    for t in v:
+        t = " ".join(str(t).split())
+        if not t:
+            continue
+        if len(t) > 30:
+            raise ValueError("A tag can have at most 30 characters")
+        if "," in t:
+            raise ValueError("A tag cannot contain a comma")
+        if t.lower() not in seen:
+            seen.add(t.lower())
+            out.append(t)
+    if len(out) > MAX_TAGS:
+        raise ValueError(f"At most {MAX_TAGS} tags per setup")
+    return out
+
+
 class SetupBase(BaseModel):
     name: str
     description: Optional[str] = None
@@ -112,6 +135,12 @@ class SetupBase(BaseModel):
     outlets_used: int = 0
     chamber_count: int = Field(0, ge=0, le=50)
     criticality: int = Field(3, ge=2, le=4)
+    tags: List[str] = []
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _tags(cls, v):
+        return _clean_tags(v or [])
 
 
 POWER_OUTLET = "__outlet__"
@@ -124,6 +153,27 @@ def _check_power(devices):
         if src and src != POWER_OUTLET and (src not in names or src == d.name):
             raise ValueError(f"Device '{d.name}' is powered from unknown device '{src}'")
     return devices
+
+
+class UsageUpdate(BaseModel):
+    """Empty used_by releases the setup (the other fields are then cleared too)."""
+    used_by: str = Field("", max_length=100)
+    used_until: str = ""
+    usage_note: str = Field("", max_length=255)
+
+    @model_validator(mode="after")
+    def _normalize(self):
+        self.used_by = self.used_by.strip()
+        self.usage_note = self.usage_note.strip()
+        self.used_until = self.used_until.strip()
+        if not self.used_by:
+            self.used_until = self.usage_note = ""
+        if self.used_until:
+            try:
+                datetime.strptime(self.used_until, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError("used_until must be a date in YYYY-MM-DD format")
+        return self
 
 
 class LocationUpdate(BaseModel):
@@ -154,8 +204,14 @@ class SetupUpdate(BaseModel):
     outlets_used: Optional[int] = None
     chamber_count: Optional[int] = Field(None, ge=0, le=50)
     criticality: Optional[int] = Field(None, ge=2, le=4)
+    tags: Optional[List[str]] = None
     devices: Optional[List[DeviceCreate]] = None
     connections: Optional[List[ConnectionCreate]] = None
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _tags(cls, v):
+        return _clean_tags(v)
 
     @field_validator("devices")
     @classmethod
@@ -176,6 +232,9 @@ class SetupRead(SetupBase):
     id: int
     map_x: Optional[float] = None
     map_y: Optional[float] = None
+    used_by: str = ""
+    used_until: str = ""
+    usage_note: str = ""
     created_at: datetime
     updated_at: datetime
     devices: List[DeviceRead] = []

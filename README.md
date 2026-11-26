@@ -67,6 +67,19 @@ Stored schemas are regenerated automatically when the layout version changes.
 - `COOKIE_SECURE=true` — set when served over HTTPS.
 - `CORS_ORIGINS` — comma-separated allowed origins.
 
+### Backups
+The `backup` service dumps the database to `./backups/srm-<date>.sql.gz` right after start and then every `BACKUP_INTERVAL_HOURS` (default 24 h); dumps older than `BACKUP_KEEP_DAYS` (default 14) are deleted. Copy that folder off the server from time to time: a backup on the same disk does not survive a disk failure.
+
+Restore (replaces the current data):
+```bash
+scripts/restore.sh backups/srm-20260101-030000.sql.gz
+```
+A manual backup: `docker compose exec backup /scripts/backup.sh`.
+Access point passwords stay encrypted in the dump; keep `APP_SECRET_KEY` separately, a backup is unreadable for them without it.
+
+### Trash
+Deleting a setup moves it to the trash (admin: **Trash** button on the home page). It can be restored with devices, connections, photo and access point links, or removed for good. Entries are purged after `TRASH_DAYS` (default 30). A restored setup gets a new id.
+
 ### Reset everything
 ```bash
 docker compose down -v    # also deletes the database volume
@@ -74,4 +87,4 @@ docker compose down -v    # also deletes the database volume
 
 ## Notes
 - After first deployment on a fresh database, default device types are seeded; on an existing database add new types (e.g. "Antenna", "Attenuator") in the type manager.
-- There is no login rate limiting; do not expose the app to the internet without a reverse proxy.
+

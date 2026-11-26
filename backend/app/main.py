@@ -8,7 +8,7 @@ from sqlalchemy import func, inspect, text
 from sqlalchemy.orm import Session, selectinload
 from . import secrets_box
 from .database import Base, SessionLocal, engine, get_db
-from . import models, schemas, crud, auth, aps
+from . import models, schemas, crud, auth, aps, trash
 from .auth import get_current_user, require_admin
 from .prompt import generate_prompt
 from .netdiagram import build_network_svg
@@ -25,6 +25,14 @@ with engine.begin() as _conn:
         _conn.execute(text("UPDATE setups SET chamber_count = 1 WHERE chamber"))
     if "criticality" not in _cols:
         _conn.execute(text("ALTER TABLE setups ADD COLUMN criticality INTEGER NOT NULL DEFAULT 3"))
+    for _col, _ddl in (
+        ("tags", "JSON NOT NULL DEFAULT '[]'"),
+        ("used_by", "VARCHAR(100) NOT NULL DEFAULT ''"),
+        ("used_until", "VARCHAR(10) NOT NULL DEFAULT ''"),
+        ("usage_note", "VARCHAR(255) NOT NULL DEFAULT ''"),
+    ):
+        if _col not in _cols:
+            _conn.execute(text(f"ALTER TABLE setups ADD COLUMN {_col} {_ddl}"))
     # The scale is 2-4 (levels 1 and 5 were removed).
     _conn.execute(text("UPDATE setups SET criticality = 2 WHERE criticality < 2"))
     _conn.execute(text("UPDATE setups SET criticality = 4 WHERE criticality > 4"))
@@ -103,6 +111,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(aps.router)
+app.include_router(trash.router)
 
 
 @app.get("/health")
@@ -146,12 +155,23 @@ def update_setup(setup_id: int, setup_in: schemas.SetupUpdate, db: Session = Dep
     return get_setup(setup_id, db)
 
 
-@app.delete("/setups/{setup_id}", dependencies=[Depends(require_admin)])
-def delete_setup(setup_id: int, db: Session = Depends(get_db)):
-    setup = crud.delete_setup(db, setup_id)
+@app.delete("/setups/{setup_id}")
+def delete_setup(setup_id: int, db: Session = Depends(get_db), user: models.User = Depends(require_admin)):
+    """Moves the setup to the trash (see trash.py); it can be restored for TRASH_DAYS days."""
+    entry = trash.move_to_trash(db, setup_id, user)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Setup not found")
+    return {"deleted": True, "id": setup_id, "trash_id": entry.id}
+
+
+@app.put("/setups/{setup_id}/usage", response_model=schemas.SetupRead, dependencies=[Depends(require_admin)])
+def set_usage(setup_id: int, body: schemas.UsageUpdate, db: Session = Depends(get_db)):
+    setup = db.get(models.Setup, setup_id)
     if not setup:
         raise HTTPException(status_code=404, detail="Setup not found")
-    return {"deleted": True, "id": setup_id}
+    setup.used_by, setup.used_until, setup.usage_note = body.used_by, body.used_until, body.usage_note
+    db.commit()
+    return get_setup(setup_id, db)
 
 
 @app.post("/setups/{setup_id}/clone", response_model=schemas.SetupRead, dependencies=[Depends(require_admin)])
@@ -171,6 +191,7 @@ def clone_setup(setup_id: int, db: Session = Depends(get_db)):
         outlets_used=src.outlets_used,
         chamber_count=src.chamber_count,
         criticality=src.criticality,
+        tags=list(src.tags or []),
         devices=[
             models.Device(
                 type=d.type, name=d.name, location=d.location, notes=d.notes,

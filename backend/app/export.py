@@ -89,10 +89,11 @@ def build_xlsx(setups, scope: str) -> bytes:
     ws.title = "Setups"
     _write_table(
         ws,
-        ["ID", "Name", "Description", "Chamber", "Chambers", "Criticality (2-4)", "Outlets used", "Devices", "Connections", "Created", "Updated"],
+        ["ID", "Name", "Description", "Chamber", "Chambers", "Criticality (2-4)", "Outlets used", "Tags", "In use by", "In use until", "Devices", "Connections", "Created", "Updated"],
         [
             [
                 s.id, s.name, s.description, "Yes" if s.chamber else "No", s.chamber_count, s.criticality, s.outlets_used,
+                ", ".join(s.tags or []), s.used_by or None, s.used_until or None,
                 len(s.devices), len(s.connections),
                 s.created_at.strftime("%Y-%m-%d %H:%M") if s.created_at else None,
                 s.updated_at.strftime("%Y-%m-%d %H:%M") if s.updated_at else None,
@@ -137,6 +138,9 @@ def build_single_xlsx(setup) -> bytes:
         ("Chambers", setup.chamber_count),
         ("Criticality (2-4)", setup.criticality),
         ("Outlets used", setup.outlets_used),
+        ("Tags", ", ".join(setup.tags or [])),
+        ("In use by", setup.used_by or None),
+        ("In use until", setup.used_until or None),
         ("Created", setup.created_at.strftime("%Y-%m-%d %H:%M") if setup.created_at else None),
         ("Updated", setup.updated_at.strftime("%Y-%m-%d %H:%M") if setup.updated_at else None),
     ]

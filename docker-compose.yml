@@ -41,5 +41,23 @@ services:
     ports:
       - "3001:3000"
 
+  backup:
+    image: postgres:16
+    container_name: setup-resource-backup
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "/scripts/backup.sh", "loop"]
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+    volumes:
+      - ./backups:/backups
+      - ./scripts/backup.sh:/scripts/backup.sh:ro
+    depends_on:
+      - postgres
+
 volumes:
   postgres_data:

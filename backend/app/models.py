@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, func
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, func
 from sqlalchemy.orm import relationship
 from .database import Base
 from .secrets_box import EncryptedText
@@ -17,12 +17,32 @@ class Setup(Base):
     criticality = Column(Integer, default=3, nullable=False, server_default="3")
     map_x = Column(Float, nullable=True)
     map_y = Column(Float, nullable=True)
+    tags = Column(JSON, nullable=False, default=list, server_default="[]")
+    # In-use marker: empty used_by means the setup is free. used_until is an ISO date (YYYY-MM-DD) or "".
+    used_by = Column(String(100), nullable=False, default="", server_default="")
+    used_until = Column(String(10), nullable=False, default="", server_default="")
+    usage_note = Column(String(255), nullable=False, default="", server_default="")
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
     devices = relationship("Device", back_populates="setup", cascade="all, delete-orphan")
     connections = relationship("Connection", back_populates="setup", cascade="all, delete-orphan")
     access_points = relationship("AccessPoint", back_populates="setup")
+
+
+class DeletedSetup(Base):
+    """Snapshot of a deleted setup; the setup itself is really deleted, so no other query has to know about the trash."""
+    __tablename__ = "deleted_setups"
+
+    id = Column(Integer, primary_key=True)
+    original_id = Column(Integer, nullable=False)
+    name = Column(String(255), nullable=False)
+    payload = Column(Text, nullable=False)  # JSON, see trash.py
+    photo = Column(LargeBinary, nullable=True)
+    photo_type = Column(String(50), nullable=True)
+    ap_ids = Column(JSON, nullable=False, default=list)
+    deleted_by = Column(String(100), nullable=False, default="", server_default="")
+    deleted_at = Column(DateTime, server_default=func.now(), nullable=False)
 
 
 class AccessPoint(Base):

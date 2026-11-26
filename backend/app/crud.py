@@ -22,6 +22,7 @@ def create_setup(db: Session, setup_in: schemas.SetupCreate):
         chamber=setup_in.chamber,
         outlets_used=setup_in.outlets_used,
         criticality=setup_in.criticality,
+        tags=setup_in.tags,
         chamber_count=setup_in.chamber_count if setup_in.chamber else 0,
     )
     db.add(setup)
@@ -50,15 +51,6 @@ def get_setups(db: Session):
 
 def get_setup(db: Session, setup_id: int):
     return db.query(models.Setup).filter(models.Setup.id == setup_id).first()
-
-
-def delete_setup(db: Session, setup_id: int):
-    setup = get_setup(db, setup_id)
-    if not setup:
-        return None
-    db.delete(setup)
-    db.commit()
-    return setup
 
 
 def update_setup(db: Session, setup_id: int, setup_in: schemas.SetupUpdate):
