@@ -285,7 +285,7 @@ export default function HomePage() {
             {sortTh("criticality", "Criticality")}
             {sortTh("outlets", "Outlets")}
             {sortTh("status", "Status")}
-            <th>PFA</th>
+            <th>Automation Web page</th>
             <th>Tags</th>
             <th>Actions</th>
           </tr>
