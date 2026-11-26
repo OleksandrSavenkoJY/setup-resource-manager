@@ -113,7 +113,7 @@ export default function HomePage() {
                 <td>
                   <span
                     style={{
-                      background: setup.chamber ? "#00a000" : "#e00000", color: "#fff", borderRadius: 999,
+                      background: setup.chamber ? "#2563eb" : "#6b7280", color: "#fff", borderRadius: 999,
                       padding: "2px 10px", fontWeight: 700, whiteSpace: "nowrap",
                     }}
                   >
