@@ -333,7 +333,7 @@ export default function AccessPointsPage() {
                 <td style={{ minWidth: 120 }}><Linkify text={a.notes} /></td>
                 <td style={{ whiteSpace: "nowrap" }}>
                   <button className="secondary" onClick={() => copyInfo(a)} title="Copy short info to clipboard">
-                    {copied === a.id ? "Copied ✓" : "Copy"}
+                    {copied === a.id ? "Copied ✓" : "Copy info"}
                   </button>
                   {isAdmin && (
                     <>
