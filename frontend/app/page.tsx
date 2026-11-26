@@ -7,14 +7,16 @@ import ExportButton from "@/components/ExportButton";
 import CriticalityBadge from "@/components/Criticality";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 import { CRITICALITY } from "@/components/Criticality";
+import { TextFilter, ValueFilter } from "@/components/ColumnFilter";
 
 export default function HomePage() {
   const me = useCurrentUser();
   const [setups, setSetups] = useState<any[]>([]);
-  const [query, setQuery] = useState("");
-  const [chamberFilter, setChamberFilter] = useState("all");
-  const [critFilter, setCritFilter] = useState("all");
-  const [outletsFilter, setOutletsFilter] = useState("all");
+  const [nameFilter, setNameFilter] = useState("");
+  // null = column not filtered
+  const [chamberFilter, setChamberFilter] = useState<string[] | null>(null);
+  const [critFilter, setCritFilter] = useState<string[] | null>(null);
+  const [outletsFilter, setOutletsFilter] = useState<string[] | null>(null);
   const [newSetupId, setNewSetupId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -29,20 +31,31 @@ export default function HomePage() {
   }, []);
 
   const outletOptions = useMemo(
-    () => [...new Set(setups.map((s: any) => s.outlets_used as number))].sort((a, b) => a - b),
+    () =>
+      [...new Set(setups.map((s: any) => s.outlets_used as number))]
+        .sort((a, b) => a - b)
+        .map((n) => ({ value: String(n), label: String(n) })),
     [setups]
   );
 
   const shown = useMemo(() => {
-    const raw = query.trim().toLowerCase();
+    const raw = nameFilter.trim().toLowerCase();
     return setups.filter(
       (s: any) =>
-        (!raw || `${s.name} ${s.description ?? ""}`.toLowerCase().includes(raw)) &&
-        (chamberFilter === "all" || (chamberFilter === "yes") === !!s.chamber) &&
-        (critFilter === "all" || String(s.criticality) === critFilter) &&
-        (outletsFilter === "all" || String(s.outlets_used) === outletsFilter)
+        (!raw || s.name.toLowerCase().includes(raw)) &&
+        (!chamberFilter || chamberFilter.includes(s.chamber ? "yes" : "no")) &&
+        (!critFilter || critFilter.includes(String(s.criticality))) &&
+        (!outletsFilter || outletsFilter.includes(String(s.outlets_used)))
     );
-  }, [setups, query, chamberFilter, critFilter, outletsFilter]);
+  }, [setups, nameFilter, chamberFilter, critFilter, outletsFilter]);
+
+  const filtered = !!nameFilter.trim() || !!chamberFilter || !!critFilter || !!outletsFilter;
+  const clearFilters = () => {
+    setNameFilter("");
+    setChamberFilter(null);
+    setCritFilter(null);
+    setOutletsFilter(null);
+  };
 
   return (
     <main>
@@ -64,41 +77,27 @@ export default function HomePage() {
         <ExportButton setups={setups} />
       </div>
 
-      <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <input
-          style={{ maxWidth: 260, margin: 0 }}
-          placeholder="Search name, description..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        <select style={{ maxWidth: 170, margin: 0 }} value={chamberFilter} onChange={(e) => setChamberFilter(e.target.value)}>
-          <option value="all">All chamber</option>
-          <option value="yes">Chamber: Yes</option>
-          <option value="no">Chamber: No</option>
-        </select>
-        <select style={{ maxWidth: 190, margin: 0 }} value={critFilter} onChange={(e) => setCritFilter(e.target.value)}>
-          <option value="all">All criticality</option>
-          {CRITICALITY.map((c) => (
-            <option key={c.level} value={String(c.level)}>{c.label}</option>
-          ))}
-        </select>
-        <select style={{ maxWidth: 170, margin: 0 }} value={outletsFilter} onChange={(e) => setOutletsFilter(e.target.value)}>
-          <option value="all">All outlets</option>
-          {outletOptions.map((n) => (
-            <option key={n} value={String(n)}>{n} outlet(s)</option>
-          ))}
-        </select>
-        <span>{shown.length} of {setups.length}</span>
-      </div>
+      {filtered && (
+        <p>
+          Showing {shown.length} of {setups.length}{" "}
+          <button type="button" className="secondary" onClick={clearFilters}>Clear filters</button>
+        </p>
+      )}
 
       <table>
         <thead>
           <tr>
             <th>#</th>
-            <th>Name</th>
-            <th>Chamber</th>
-            <th>Criticality</th>
-            <th>Outlets</th>
+            <TextFilter label="Name" value={nameFilter} onChange={setNameFilter} placeholder="Name contains..." />
+            <ValueFilter
+              label="Chamber" selected={chamberFilter} onChange={setChamberFilter}
+              options={[{ value: "yes", label: "Yes" }, { value: "no", label: "No" }]}
+            />
+            <ValueFilter
+              label="Criticality" selected={critFilter} onChange={setCritFilter}
+              options={CRITICALITY.map((c) => ({ value: String(c.level), label: c.label }))}
+            />
+            <ValueFilter label="Outlets" selected={outletsFilter} onChange={setOutletsFilter} options={outletOptions} />
           </tr>
         </thead>
         <tbody>
