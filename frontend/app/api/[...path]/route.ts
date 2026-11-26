@@ -38,10 +38,9 @@ async function proxy(request: Request, { params }: Context) {
   const apExport = path.length === 1 && path[0] === "access-points-export";
   const apImport = path.length === 1 && path[0] === "access-points-import";
   const setupAps = path.length === 3 && path[0] === "setups" && num(path[1]) && path[2] === "access-points";
-  const exportAll = path.length === 2 && path[0] === "export" && path[1] === "setups";
-  const exportOne = path.length === 3 && path[0] === "export" && path[1] === "setups" && /^[1-9]\d*$/.test(path[2]);
+  const exportBundle = path.length === 1 && path[0] === "export";
 
-  if (!authMethod && !apCollection && !apItem && !apPhoto && !apImport && !apExport && !setupAps && !collection && !item && !prompt && !clone && !diagram && !exportAll && !exportOne && !deviceTypes && !deviceIcons && !photo && !officeMap && !location && !netDiagram) {
+  if (!authMethod && !apCollection && !apItem && !apPhoto && !apImport && !apExport && !setupAps && !collection && !item && !prompt && !clone && !diagram && !exportBundle && !deviceTypes && !deviceIcons && !photo && !officeMap && !location && !netDiagram) {
     return NextResponse.json({ detail: "Not found" }, { status: 404 });
   }
   const allowed = authMethod
@@ -68,7 +67,7 @@ async function proxy(request: Request, { params }: Context) {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), diagram ? 180000 : 15000);
+  const timeout = setTimeout(() => controller.abort(), diagram || exportBundle ? 180000 : 15000);
   try {
     const base = (process.env.API_INTERNAL_URL || "http://backend:8000").replace(/\/$/, "");
     const upstreamHeaders: Record<string, string> = { "Content-Type": photo || officeMap || apPhoto || apImport ? request.headers.get("content-type") || "application/octet-stream" : "application/json" };
