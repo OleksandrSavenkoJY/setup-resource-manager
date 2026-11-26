@@ -13,6 +13,8 @@ Inventory of test setups: devices, connections, power, network interfaces, photo
 - Network interfaces (name, type, IP, MAC) and a generated network diagram
 - Generated schema (SVG / draw.io) with zoom, setup photo, export of any selection of setups (Excel data, schema PNG and draw.io, photo), AI prompt
 - Office map with setup markers
+- Tags, and a Free / In use by ... until ... status per setup (set by the admin on the details page)
+- Trash for deleted setups and automatic database backups
 - Login with roles: `admin` (create/edit/delete) and `guest` (read-only)
 
 ## Deploy
@@ -84,6 +86,12 @@ Deleting a setup moves it to the trash (admin: **Trash** button on the home page
 ```bash
 docker compose down -v    # also deletes the database volume
 ```
+
+## Tests
+```bash
+cd backend && pip install -r requirements-dev.txt && pytest
+```
+The tests use a temporary SQLite database.
 
 ## Notes
 - After first deployment on a fresh database, default device types are seeded; on an existing database add new types (e.g. "Antenna", "Attenuator") in the type manager.

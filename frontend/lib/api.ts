@@ -289,3 +289,26 @@ export async function fetchNetworkSvg(setupId: number): Promise<string> {
   if (!res.ok) throw new Error(`Failed to load network diagram (${res.status})`);
   return (await res.json()).svg as string;
 }
+
+export type TrashEntry = {
+  id: number; original_id: number | null; name: string; devices: number; connections: number;
+  has_photo: boolean; deleted_by: string; deleted_at: string | null; expires_at: string | null;
+};
+
+export const fetchTrash = (): Promise<TrashEntry[]> => request("/trash");
+export const restoreFromTrash = (id: number): Promise<{ id: number }> =>
+  request(`/trash/${id}/restore`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+
+async function requestNoContent(path: string) {
+  const res = await fetch(`/api${path}`, { method: "DELETE", cache: "no-store" });
+  if (!res.ok) throw new Error(`API ${res.status}: ${(await res.text()) || res.statusText}`);
+}
+export const purgeFromTrash = (id: number) => requestNoContent(`/trash/${id}`);
+export const emptyTrash = () => requestNoContent("/trash");
+
+export const updateUsage = (id: number, usage: { used_by: string; used_until: string; usage_note: string }) =>
+  request(`/setups/${id}/usage`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(usage),
+  });

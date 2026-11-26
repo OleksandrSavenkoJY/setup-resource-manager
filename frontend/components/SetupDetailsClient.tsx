@@ -8,7 +8,7 @@ import CriticalityBadge from "@/components/Criticality";
 import ZoomableImage from "@/components/ZoomableImage";
 import OfficeMapView from "@/components/OfficeMapView";
 import Linkify from "@/components/Linkify";
-import { cloneSetup, deletePhoto, deleteSetup, fetchMapUrl, fetchNetworkSvg, fetchPhotoUrl, generateDiagram, setSetupLocation, uploadPhoto, type Diagram } from "@/lib/api";
+import { cloneSetup, deletePhoto, deleteSetup, fetchMapUrl, fetchNetworkSvg, fetchPhotoUrl, generateDiagram, setSetupLocation, updateUsage, uploadPhoto, type Diagram } from "@/lib/api";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 
 type Props = {
@@ -119,6 +119,25 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
     a.click();
     URL.revokeObjectURL(url);
   }
+  const [usage, setUsage] = useState({ used_by: setup.used_by ?? "", used_until: setup.used_until ?? "", usage_note: setup.usage_note ?? "" });
+  const [usageBusy, setUsageBusy] = useState(false);
+  const [usageMsg, setUsageMsg] = useState("");
+
+  async function saveUsage(next: typeof usage) {
+    setUsageBusy(true);
+    setUsageMsg("");
+    try {
+      const saved: any = await updateUsage(setup.id, next);
+      setUsage({ used_by: saved.used_by ?? "", used_until: saved.used_until ?? "", usage_note: saved.usage_note ?? "" });
+      setUsageMsg(saved.used_by ? "Saved" : "Released");
+    } catch (err) {
+      setUsageMsg(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setUsageBusy(false);
+    }
+  }
+  const overdue = !!usage.used_by && !!usage.used_until && usage.used_until < new Date().toISOString().slice(0, 10);
+
   const [showConfirm, setShowConfirm] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
@@ -168,6 +187,35 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
         <p><b>Description:</b> {setup.description || "-"}</p>
         {setup.chamber ? <p><b>Chambers:</b> {setup.chamber_count ?? 0}</p> : null}
         <p><b>Criticality:</b> <CriticalityBadge level={setup.criticality} /></p>
+        {(setup.tags ?? []).length > 0 && (
+          <p>
+            <b>Tags:</b>{" "}
+            {setup.tags.map((t: string) => (
+              <span key={t} style={{ background: "#e5e7eb", color: "#111", borderRadius: 999, padding: "1px 8px", marginRight: 4, fontSize: 12 }}>{t}</span>
+            ))}
+          </p>
+        )}
+        <p>
+          <b>Status:</b>{" "}
+          {usage.used_by ? (
+            <span style={{ color: overdue ? "#e00000" : undefined, fontWeight: 700 }}>
+              In use by {usage.used_by}{usage.used_until ? " until " + usage.used_until : ""}{overdue ? " (overdue)" : ""}
+              {usage.usage_note ? " - " + usage.usage_note : ""}
+            </span>
+          ) : (
+            <span style={{ color: "#16a34a", fontWeight: 700 }}>Free</span>
+          )}
+        </p>
+        {isAdmin && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+            <input style={{ maxWidth: 160, margin: 0 }} placeholder="Who uses it" value={usage.used_by} onChange={(e) => setUsage({ ...usage, used_by: e.target.value })} />
+            <input type="date" style={{ maxWidth: 160, margin: 0 }} value={usage.used_until} onChange={(e) => setUsage({ ...usage, used_until: e.target.value })} />
+            <input style={{ maxWidth: 240, margin: 0 }} placeholder="Note (optional)" value={usage.usage_note} onChange={(e) => setUsage({ ...usage, usage_note: e.target.value })} />
+            <button type="button" disabled={usageBusy || !usage.used_by.trim()} onClick={() => saveUsage(usage)}>Reserve</button>
+            <button type="button" className="secondary" disabled={usageBusy || !usage.used_by} onClick={() => saveUsage({ used_by: "", used_until: "", usage_note: "" })}>Release</button>
+            {usageMsg && <span>{usageMsg}</span>}
+          </div>
+        )}
         {(() => {
           const withPfa = (setup.devices ?? []).filter((d: any) => d.pfa_ip);
           const main = withPfa.find((d: any) => /mgmt/i.test(d.notes ?? "")) ?? withPfa[0];
@@ -378,7 +426,7 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
             </button>
           </>
         ) : (
-          <button type="button" className="secondary" onClick={() => setShowConfirm(true)}>
+          <button type="button" className="secondary" title="The setup goes to the Trash and can be restored" onClick={() => setShowConfirm(true)}>
             Delete setup
           </button>
         ))}

@@ -95,6 +95,7 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
   const [description, setDescription] = useState<string>(initialData?.description ?? "");
   const [chamber, setChamber] = useState<boolean>(initialData?.chamber ?? false);
   const [allAps, setAllAps] = useState<AccessPoint[]>([]);
+  const [tagsText, setTagsText] = useState<string>((initialData?.tags ?? []).join(", "));
   const [criticality, setCriticality] = useState<number>(initialData?.criticality ?? 3);
   const [outletsUsed, setOutletsUsed] = useState<number>(initialData?.outlets_used ?? 0);
   const [chamberCount, setChamberCount] = useState<number>(
@@ -378,6 +379,7 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
       outlets_used: outletsUsed,
       chamber_count: chamber ? chamberCount : 0,
       criticality,
+      tags: tagsText.split(",").map((t) => t.trim()).filter(Boolean),
       devices: named.map(({ uid: _uid, ...d }) => ({
         ...d,
         quantity: 1,
@@ -533,6 +535,11 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
           style={{ resize: "vertical", minWidth: "100%", width: "100%" }}
           className={showError("description") && !isValid.description ? "field-error" : ""}
         />
+      </label>
+
+      <label>
+        Tags (comma separated)
+        <input value={tagsText} onChange={(e) => setTagsText(e.target.value)} placeholder="e.g. lab, wifi, ci" />
       </label>
 
       <div className="card" style={{ margin: "16px 0" }}>

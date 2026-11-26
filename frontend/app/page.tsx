@@ -7,12 +7,31 @@ import ExportButton from "@/components/ExportButton";
 import CriticalityBadge from "@/components/Criticality";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 
-type SortKey = "name" | "chamber" | "criticality" | "outlets";
+type SortKey = "name" | "chamber" | "criticality" | "outlets" | "status";
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+function StatusBadge({ setup }: { setup: any }) {
+  if (!setup.used_by) {
+    return <span style={{ background: "#16a34a", color: "#fff", borderRadius: 999, padding: "2px 10px", fontWeight: 700 }}>Free</span>;
+  }
+  const overdue = !!setup.used_until && setup.used_until < today();
+  const label = setup.used_by + (setup.used_until ? " until " + setup.used_until : "") + (overdue ? " (overdue)" : "");
+  return (
+    <span
+      title={setup.usage_note || undefined}
+      style={{ background: overdue ? "#e00000" : "#f59e0b", color: "#fff", borderRadius: 999, padding: "2px 10px", fontWeight: 700, whiteSpace: "nowrap" }}
+    >
+      {label}
+    </span>
+  );
+}
 
 function sortValue(s: any, key: SortKey): string | number {
   if (key === "name") return s.name;
   if (key === "chamber") return s.chamber ? 1 : 0;
   if (key === "criticality") return s.criticality;
+  if (key === "status") return s.used_by ? "1" + (s.used_until || "9999") : "0";
   return s.outlets_used;
 }
 
@@ -21,6 +40,7 @@ export default function HomePage() {
   const [setups, setSetups] = useState<any[]>([]);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 } | null>(null);
+  const [tag, setTag] = useState("");
   const [newSetupId, setNewSetupId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,7 +56,9 @@ export default function HomePage() {
 
   const shown = useMemo(() => {
     const raw = query.trim().toLowerCase();
-    const list = setups.filter((s: any) => !raw || s.name.toLowerCase().includes(raw));
+    const list = setups.filter((s: any) =>
+      (!raw || s.name.toLowerCase().includes(raw) || (s.tags || []).some((t: string) => t.toLowerCase().includes(raw))) &&
+      (!tag || (s.tags || []).includes(tag)));
     if (!sort) return list;
     const { key, dir } = sort;
     return [...list].sort((x: any, y: any) => {
@@ -44,7 +66,11 @@ export default function HomePage() {
       if (typeof a === "number" && typeof b === "number") return dir * (a - b);
       return dir * String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
     });
-  }, [setups, query, sort]);
+  }, [setups, query, sort, tag]);
+  const allTags: string[] = useMemo(
+    () => Array.from(new Set<string>(setups.flatMap((s: any) => s.tags || []))).sort((a, b) => a.localeCompare(b)),
+    [setups],
+  );
 
   // Click: ascending, again: descending, again: original order.
   const toggleSort = (key: SortKey) =>
@@ -73,16 +99,31 @@ export default function HomePage() {
           <button className="secondary">Office map</button>
         </Link>
         <ExportButton setups={setups} />
+        {me?.role === "admin" && (
+          <Link href="/trash">
+            <button className="secondary">Trash</button>
+          </Link>
+        )}
       </div>
 
       <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <input
           style={{ maxWidth: 260, margin: 0 }}
-          placeholder="Search name..."
+          placeholder="Search name or tag..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
         <span>{shown.length} of {setups.length}</span>
+        {allTags.map((t) => (
+          <button
+            key={t}
+            className={tag === t ? undefined : "secondary"}
+            style={{ padding: "2px 10px", borderRadius: 999 }}
+            onClick={() => setTag(tag === t ? "" : t)}
+          >
+            {t}
+          </button>
+        ))}
       </div>
 
       <table>
@@ -93,6 +134,8 @@ export default function HomePage() {
             {sortTh("chamber", "Chamber")}
             {sortTh("criticality", "Criticality")}
             {sortTh("outlets", "Outlets")}
+            {sortTh("status", "Status")}
+            <th>Tags</th>
           </tr>
         </thead>
         <tbody>
@@ -116,6 +159,18 @@ export default function HomePage() {
                 </td>
                 <td><CriticalityBadge level={setup.criticality} /></td>
                 <td>{setup.outlets_used}</td>
+                <td><StatusBadge setup={setup} /></td>
+                <td>
+                  {(setup.tags || []).map((t: string) => (
+                    <span
+                      key={t}
+                      onClick={() => setTag(t)}
+                      style={{ cursor: "pointer", background: "#e5e7eb", color: "#111", borderRadius: 999, padding: "1px 8px", marginRight: 4, fontSize: 12 }}
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </td>
               </tr>
             );
           })}
