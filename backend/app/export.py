@@ -83,17 +83,33 @@ def _add_schema_image(ws, setup, anchor="A1"):
     ws.add_image(img, anchor)
 
 
+def _map_location(s):
+    if s.map_x is None or s.map_y is None:
+        return "Not placed"
+    return f"x {s.map_x * 100:.0f}%, y {s.map_y * 100:.0f}%"
+
+
+def _device_locations(s):
+    seen = []
+    for d in s.devices:
+        loc = (d.location or "").strip()
+        if loc and loc not in seen:
+            seen.append(loc)
+    return ", ".join(seen) or None
+
+
 def build_xlsx(setups, scope: str) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "Setups"
     _write_table(
         ws,
-        ["ID", "Name", "Description", "Chamber", "Chambers", "Criticality (2-4)", "Outlets used", "Tags", "In use by", "In use until", "Devices", "Connections", "Created", "Updated"],
+        ["ID", "Name", "Description", "Chamber", "Chambers", "Criticality (2-4)", "Outlets used", "Tags", "In use by", "In use until", "Device locations", "Office map", "Devices", "Connections", "Created", "Updated"],
         [
             [
                 s.id, s.name, s.description, "Yes" if s.chamber else "No", s.chamber_count, s.criticality, s.outlets_used,
                 ", ".join(s.tags or []), s.used_by or None, s.used_until or None,
+                _device_locations(s), _map_location(s),
                 len(s.devices), len(s.connections),
                 s.created_at.strftime("%Y-%m-%d %H:%M") if s.created_at else None,
                 s.updated_at.strftime("%Y-%m-%d %H:%M") if s.updated_at else None,
@@ -141,6 +157,8 @@ def build_single_xlsx(setup) -> bytes:
         ("Tags", ", ".join(setup.tags or [])),
         ("In use by", setup.used_by or None),
         ("In use until", setup.used_until or None),
+        ("Device locations", _device_locations(setup)),
+        ("Office map", _map_location(setup)),
         ("Created", setup.created_at.strftime("%Y-%m-%d %H:%M") if setup.created_at else None),
         ("Updated", setup.updated_at.strftime("%Y-%m-%d %H:%M") if setup.updated_at else None),
     ]
