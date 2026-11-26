@@ -7,7 +7,41 @@ import ExportButton from "@/components/ExportButton";
 import CriticalityBadge from "@/components/Criticality";
 import { useCurrentUser } from "@/lib/useCurrentUser";
 import { CRITICALITY } from "@/components/Criticality";
-import { TextFilter, ValueFilter } from "@/components/ColumnFilter";
+
+type Option = { value: string; label: string };
+
+// Toggle buttons instead of a dropdown; no button pressed means no filter.
+function Chips({ label, options, selected, onChange }: {
+  label: string;
+  options: Option[];
+  selected: string[] | null;
+  onChange: (next: string[] | null) => void;
+}) {
+  const toggle = (value: string) => {
+    const cur = selected ?? [];
+    const next = cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value];
+    onChange(next.length === 0 ? null : next);
+  };
+  return (
+    <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+      <span style={{ opacity: 0.7 }}>{label}:</span>
+      {options.map((o) => {
+        const on = !!selected?.includes(o.value);
+        return (
+          <button
+            key={o.value}
+            type="button"
+            className={on ? undefined : "secondary"}
+            style={{ margin: 0, padding: "4px 10px" }}
+            onClick={() => toggle(o.value)}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function HomePage() {
   const me = useCurrentUser();
@@ -77,27 +111,30 @@ export default function HomePage() {
         <ExportButton setups={setups} />
       </div>
 
-      {filtered && (
-        <p>
-          Showing {shown.length} of {setups.length}{" "}
-          <button type="button" className="secondary" onClick={clearFilters}>Clear filters</button>
-        </p>
-      )}
+      <div className="card" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <input
+          style={{ maxWidth: 260, margin: 0 }}
+          placeholder="Search name..."
+          value={nameFilter}
+          onChange={(e) => setNameFilter(e.target.value)}
+        />
+        <Chips label="Chamber" selected={chamberFilter} onChange={setChamberFilter}
+          options={[{ value: "yes", label: "Yes" }, { value: "no", label: "No" }]} />
+        <Chips label="Criticality" selected={critFilter} onChange={setCritFilter}
+          options={CRITICALITY.map((c) => ({ value: String(c.level), label: c.label }))} />
+        <Chips label="Outlets" selected={outletsFilter} onChange={setOutletsFilter} options={outletOptions} />
+        {filtered && <button type="button" className="secondary" onClick={clearFilters}>Clear filters</button>}
+        <span>{shown.length} of {setups.length}</span>
+      </div>
 
       <table>
         <thead>
           <tr>
             <th>#</th>
-            <TextFilter label="Name" value={nameFilter} onChange={setNameFilter} placeholder="Name contains..." />
-            <ValueFilter
-              label="Chamber" selected={chamberFilter} onChange={setChamberFilter}
-              options={[{ value: "yes", label: "Yes" }, { value: "no", label: "No" }]}
-            />
-            <ValueFilter
-              label="Criticality" selected={critFilter} onChange={setCritFilter}
-              options={CRITICALITY.map((c) => ({ value: String(c.level), label: c.label }))}
-            />
-            <ValueFilter label="Outlets" selected={outletsFilter} onChange={setOutletsFilter} options={outletOptions} />
+            <th>Name</th>
+            <th>Chamber</th>
+            <th>Criticality</th>
+            <th>Outlets</th>
           </tr>
         </thead>
         <tbody>
