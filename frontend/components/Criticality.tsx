@@ -1,9 +1,9 @@
 import Badge from "@/components/Badge";
 
 export const CRITICALITY = [
-  { level: 2, label: "Minor", color: "#4d7c0f" },
-  { level: 3, label: "Medium", color: "#b45309" },
-  { level: 4, label: "High", color: "#c2410c" },
+  { level: 2, label: "Minor", color: "#0e7490" },
+  { level: 3, label: "Medium", color: "#a16207" },
+  { level: 4, label: "High", color: "#9f1239" },
 ];
 
 export function criticalityInfo(level: number | null | undefined) {

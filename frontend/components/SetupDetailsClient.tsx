@@ -218,7 +218,7 @@ export default function SetupDetailsClient({ setup, prompt, diagram: initialDiag
         {usage.used_by ? (
           <Badge
             label={"In use by " + usage.used_by + (usage.used_until ? " until " + usage.used_until : "") + (overdue ? " (overdue)" : "")}
-            color={overdue ? BADGE_COLORS.red : BADGE_COLORS.amber}
+            color={overdue ? BADGE_COLORS.red : BADGE_COLORS.purple}
             title={usage.usage_note || undefined}
           />
         ) : (

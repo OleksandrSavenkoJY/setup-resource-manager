@@ -193,3 +193,15 @@ main:focus { outline: none; }
 [data-density="compact"] th, [data-density="compact"] td { padding: 3px 8px; font-size: 13px; }
 [data-density="compact"] .list-table th { top: 48px; }
 [data-density="compact"] .badge { padding: 0 8px; font-size: 12px; }
+
+.sticky-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  gap: 8px;
+  padding: 12px 0;
+  margin-top: 12px;
+  background: var(--bg, #fff);
+  border-top: 1px solid rgba(128, 128, 128, 0.35);
+}

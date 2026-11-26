@@ -35,7 +35,7 @@ function statusText(s: any) {
 function StatusBadge({ setup }: { setup: any }) {
   if (!setup.used_by) return <Badge label="Free" color={BADGE_COLORS.green} />;
   const label = setup.used_by + (setup.used_until ? " until " + setup.used_until : "") + (isOverdue(setup) ? " (overdue)" : "");
-  return <Badge label={label} color={isOverdue(setup) ? BADGE_COLORS.red : BADGE_COLORS.amber} title={setup.usage_note || undefined} />;
+  return <Badge label={label} color={isOverdue(setup) ? BADGE_COLORS.red : BADGE_COLORS.purple} title={setup.usage_note || undefined} />;
 }
 
 export default function HomePage() {

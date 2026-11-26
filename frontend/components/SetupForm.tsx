@@ -961,7 +961,7 @@ export default function SetupForm({ mode, setupId, initialData }: Props) {
       {submitError ? <div className="field-error" style={{ padding: 12, marginBottom: 12 }}>{submitError}</div> : null}
       {!canSubmit && submitAttempted ? <div className="field-error" style={{ padding: 12, marginBottom: 12 }}>Please fill in the required fields. Every connection needs two different devices from the list and an interface on each side.</div> : null}
 
-      <div style={{ display: "flex", gap: 8 }}>
+      <div className="sticky-actions">
         <button type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Saving..." : mode === "create" ? "Create" : "Save"}
         </button>
