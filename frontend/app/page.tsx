@@ -6,51 +6,21 @@ import { fetchSetups } from "@/lib/api";
 import ExportButton from "@/components/ExportButton";
 import CriticalityBadge from "@/components/Criticality";
 import { useCurrentUser } from "@/lib/useCurrentUser";
-import { CRITICALITY } from "@/components/Criticality";
 
-type Option = { value: string; label: string };
+type SortKey = "name" | "chamber" | "criticality" | "outlets";
 
-// Toggle buttons instead of a dropdown; no button pressed means no filter.
-function Chips({ label, options, selected, onChange }: {
-  label: string;
-  options: Option[];
-  selected: string[] | null;
-  onChange: (next: string[] | null) => void;
-}) {
-  const toggle = (value: string) => {
-    const cur = selected ?? [];
-    const next = cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value];
-    onChange(next.length === 0 ? null : next);
-  };
-  return (
-    <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
-      <span style={{ opacity: 0.7 }}>{label}:</span>
-      {options.map((o) => {
-        const on = !!selected?.includes(o.value);
-        return (
-          <button
-            key={o.value}
-            type="button"
-            className={on ? undefined : "secondary"}
-            style={{ margin: 0, padding: "4px 10px" }}
-            onClick={() => toggle(o.value)}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
+function sortValue(s: any, key: SortKey): string | number {
+  if (key === "name") return s.name;
+  if (key === "chamber") return s.chamber ? 1 : 0;
+  if (key === "criticality") return s.criticality;
+  return s.outlets_used;
 }
 
 export default function HomePage() {
   const me = useCurrentUser();
   const [setups, setSetups] = useState<any[]>([]);
-  const [nameFilter, setNameFilter] = useState("");
-  // null = column not filtered
-  const [chamberFilter, setChamberFilter] = useState<string[] | null>(null);
-  const [critFilter, setCritFilter] = useState<string[] | null>(null);
-  const [outletsFilter, setOutletsFilter] = useState<string[] | null>(null);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 } | null>(null);
   const [newSetupId, setNewSetupId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -64,32 +34,26 @@ export default function HomePage() {
     load().catch(console.error);
   }, []);
 
-  const outletOptions = useMemo(
-    () =>
-      [...new Set(setups.map((s: any) => s.outlets_used as number))]
-        .sort((a, b) => a - b)
-        .map((n) => ({ value: String(n), label: String(n) })),
-    [setups]
-  );
-
   const shown = useMemo(() => {
-    const raw = nameFilter.trim().toLowerCase();
-    return setups.filter(
-      (s: any) =>
-        (!raw || s.name.toLowerCase().includes(raw)) &&
-        (!chamberFilter || chamberFilter.includes(s.chamber ? "yes" : "no")) &&
-        (!critFilter || critFilter.includes(String(s.criticality))) &&
-        (!outletsFilter || outletsFilter.includes(String(s.outlets_used)))
-    );
-  }, [setups, nameFilter, chamberFilter, critFilter, outletsFilter]);
+    const raw = query.trim().toLowerCase();
+    const list = setups.filter((s: any) => !raw || s.name.toLowerCase().includes(raw));
+    if (!sort) return list;
+    const { key, dir } = sort;
+    return [...list].sort((x: any, y: any) => {
+      const a = sortValue(x, key), b = sortValue(y, key);
+      if (typeof a === "number" && typeof b === "number") return dir * (a - b);
+      return dir * String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+    });
+  }, [setups, query, sort]);
 
-  const filtered = !!nameFilter.trim() || !!chamberFilter || !!critFilter || !!outletsFilter;
-  const clearFilters = () => {
-    setNameFilter("");
-    setChamberFilter(null);
-    setCritFilter(null);
-    setOutletsFilter(null);
-  };
+  // Click: ascending, again: descending, again: original order.
+  const toggleSort = (key: SortKey) =>
+    setSort((s) => (!s || s.key !== key ? { key, dir: 1 } : s.dir === 1 ? { key, dir: -1 } : null));
+  const sortTh = (key: SortKey, label: string) => (
+    <th onClick={() => toggleSort(key)} style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }} title="Click to sort">
+      {label}{sort?.key === key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}
+    </th>
+  );
 
   return (
     <main>
@@ -111,19 +75,13 @@ export default function HomePage() {
         <ExportButton setups={setups} />
       </div>
 
-      <div className="card" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+      <div className="card" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <input
           style={{ maxWidth: 260, margin: 0 }}
           placeholder="Search name..."
-          value={nameFilter}
-          onChange={(e) => setNameFilter(e.target.value)}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
         />
-        <Chips label="Chamber" selected={chamberFilter} onChange={setChamberFilter}
-          options={[{ value: "yes", label: "Yes" }, { value: "no", label: "No" }]} />
-        <Chips label="Criticality" selected={critFilter} onChange={setCritFilter}
-          options={CRITICALITY.map((c) => ({ value: String(c.level), label: c.label }))} />
-        <Chips label="Outlets" selected={outletsFilter} onChange={setOutletsFilter} options={outletOptions} />
-        {filtered && <button type="button" className="secondary" onClick={clearFilters}>Clear filters</button>}
         <span>{shown.length} of {setups.length}</span>
       </div>
 
@@ -131,10 +89,10 @@ export default function HomePage() {
         <thead>
           <tr>
             <th>#</th>
-            <th>Name</th>
-            <th>Chamber</th>
-            <th>Criticality</th>
-            <th>Outlets</th>
+            {sortTh("name", "Name")}
+            {sortTh("chamber", "Chamber")}
+            {sortTh("criticality", "Criticality")}
+            {sortTh("outlets", "Outlets")}
           </tr>
         </thead>
         <tbody>
